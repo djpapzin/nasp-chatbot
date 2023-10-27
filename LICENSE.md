@@ -1,7 +1,3 @@
-Certainly! Here's the content for the `LICENSE.md` file, using the MIT License:
-
----
-
 # MIT License
 
 Copyright (c) [2023] [DJ Papzin]
