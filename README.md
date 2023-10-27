@@ -1,6 +1,9 @@
+
 # MultipleDocumentllama2Bot 📚
 
 Welcome to the `MultipleDocumentllama2Bot` repository. This project provides a chatbot that can answer questions based on multiple uploaded documents. It utilizes the `llama2` model for conversational retrieval and supports various document formats including `.pdf`, `.docx`, `.doc`, and `.txt`.
+
+![Demo Image](demo.jpeg)
 
 ## Features
 
@@ -60,4 +63,4 @@ We welcome contributions! If you'd like to contribute, feel free to fork the rep
 
 ## License
 
-This project is licensed under the MIT License. Please see the `LICENSE` file for more details.
+This project is licensed under the MIT License. Please see the `LICENSE.md` file for more details.
