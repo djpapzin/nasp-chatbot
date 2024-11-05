@@ -2,16 +2,16 @@ import streamlit as st
 from streamlit_chat import message
 from langchain.chains import ConversationalRetrievalChain
 from langchain.text_splitter import CharacterTextSplitter
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain.memory import ConversationBufferMemory
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
 from langchain_core.documents import Document
-from langchain_core.prompts import ChatPromptTemplate
-import requests
+import replicate
 import os
 from dotenv import load_dotenv
 import tempfile
 from uuid import uuid4
-import replicate
-import json
 
 load_dotenv()
 
@@ -26,56 +26,29 @@ def initialize_session_state():
         st.session_state['past'] = ["Hey! 👋"]
 
 def conversation_chat(query, history):
-    # Use a ChatPromptTemplate to generate a consistent prompt for the LLM
-    prompt_template = ChatPromptTemplate([
-        ("system", "You are a helpful assistant that provides information based on given documents."),
-        ("user", "{query}")
-    ])
-    
-    # Create the prompt with the user's query
-    prompt = prompt_template.invoke({"query": query})
+    prompt_template = "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nYou are a helpful assistant.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+    prompt = prompt_template.format(prompt=query)
 
-    # Debug: Print the generated prompt
-    st.write("Generated Prompt: ", prompt)
-
-    # Convert prompt to string
-    prompt_string = "\n".join([f"{message.type}: {message.content}" for message in prompt.to_messages()])
-
-    # Use replicate API to get the LLM response
-    api_url = "https://api.replicate.com/v1/predictions"
-    headers = {
-        "Authorization": f"Token {os.getenv('REPLICATE_API_TOKEN')}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "version": "meta/meta-llama-3-8b-instruct",
-        "input": {
+    response = ""
+    for event in replicate.stream(
+        "meta/meta-llama-3-8b-instruct",
+        input={
             "top_k": 0,
             "top_p": 0.95,
-            "prompt": prompt_string,
+            "prompt": prompt,
             "max_tokens": 512,
             "temperature": 0.7,
             "length_penalty": 1,
             "max_new_tokens": 512,
-            "stop_sequences": ["<|end_of_text|>", "<|eot_id|>"],
+            "stop_sequences": "<|end_of_text|>,<|eot_id|>",
             "presence_penalty": 0,
             "log_performance_metrics": False
-        }
-    }
+        },
+    ):
+        response += str(event)
 
-    # Debug: Print data to be sent to API
-    st.write("Request Data: ", data)
-
-    response = requests.post(api_url, headers=headers, data=json.dumps(data))
-    response_json = response.json()
-    
-    # Debug: Print response from API
-    st.write("API Response: ", response_json)
-
-    result = response_json.get("output", "Sorry, I couldn't generate a response.")
-    
-    history.append((query, result))
-    return result
+    history.append((query, response))
+    return response
 
 def display_chat_history():
     reply_container = st.container()
@@ -100,22 +73,22 @@ def display_chat_history():
                 message(st.session_state['generated'][i], key=str(i), avatar_style="fun-emoji")
 
 def create_vector_store(documents):
-    # Use Hugging Face Inference API for embedding generation
-    api_url = "https://api-inference.huggingface.co/models/sentence-transformers/all-mpnet-base-v2"
-    headers = {
-        "Authorization": f"Bearer {os.getenv('HUGGINGFACE_API_TOKEN')}"
-    }
+    # Initialize the embedding model using Hugging Face API
+    embedding_model = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-mpnet-base-v2"  # Use the proper attribute name
+    )
 
-    embeddings = []
-    for document in documents:
-        response = requests.post(api_url, headers=headers, json={"inputs": document.page_content})
-        response_json = response.json()
-        embedding = response_json[0] if isinstance(response_json, list) else None
-        if embedding:
-            embeddings.append((document, embedding))
+    # Create Chroma vector store (persistence enabled for keeping embeddings even after reloading)
+    vector_store = Chroma(
+        collection_name="example_collection",
+        embedding_function=embedding_model,
+        persist_directory="./chroma_langchain_db"  # Chroma persists data here
+    )
 
-    # Create a simple in-memory dictionary to act as a vector store
-    vector_store = {str(uuid4()): (doc, emb) for doc, emb in embeddings}
+    # Add documents to the vector store
+    uuids = [str(uuid4()) for _ in range(len(documents))]
+    vector_store.add_documents(documents=documents, ids=uuids)
+
     return vector_store
 
 def main():

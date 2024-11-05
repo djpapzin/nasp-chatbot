@@ -105,48 +105,7 @@ added_ids = vector_store.add_embeddings(text_embeddings=list(zip(uuids, embeddin
 print(f"Successfully added the following UUIDs to the vector store: {added_ids}")
 
 # Retrieve and generate using the relevant snippets of the PDF content
-retriever = vector_store.as_retriever()
-prompt = "What is Task Decomposition?"
-
-def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
-
-context = retriever.invoke(prompt)
-formatted_context = format_docs(context)
-
-# Use Together AI for completion
-response = client.chat.completions.create(
-    model="meta-llama/Llama-3.2-3B-Instruct-Turbo",
-    messages=[{"role": "user", "content": formatted_context}],
-    max_tokens=512,
-    temperature=0.7,
-    top_p=0.7,
-    top_k=50,
-    repetition_penalty=1,
-    stop=["<|eot_id|>","<|eom_id|>"],
-    stream=True
-)
-
-# Print the response
-if not response:
-    print("No response received from Together AI.")
-else:
-    print("Generated response:")
-    for token in response:
-        if hasattr(token, 'choices'):
-            print(token.choices[0].delta.content, end='', flush=True)
-        else:
-            print(f"Unexpected token format: {token}")
-
-# Cleanup: Delete the documents using only successfully added IDs
-try:
-    if added_ids:
-        vector_store.delete(ids=added_ids)  # Specify the exact IDs that were added to delete them
-        print("FAISS vector store deleted successfully.")
-    else:
-        print("No documents were added, so none to delete.")
-except ValueError as e:
-    print(f"Error during deletion: {e}")
+retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
 
 # Adding a querying mechanism
 while True:
@@ -155,16 +114,19 @@ while True:
         break
     # Retrieve relevant documents from the vector store
     context = retriever.invoke(user_query)
-    formatted_context = format_docs(context)
+    formatted_context = "\n\n".join([f"Document {i+1} Content:\n{doc.page_content}" for i, doc in enumerate(context)])
     
     # Print the retrieved context
     print("\nRetrieved Context:\n")
+    if not formatted_context.strip():
+        print("No relevant documents found for your query.")
+        continue
     print(formatted_context)
     
     # Optionally, generate a response using Together AI
     response = client.chat.completions.create(
         model="meta-llama/Llama-3.2-3B-Instruct-Turbo",
-        messages=[{"role": "user", "content": formatted_context}],
+        messages=[{"role": "user", "content": f"User Query: {user_query}\n\nContext:\n{formatted_context}"}],
         max_tokens=512,
         temperature=0.7,
         top_p=0.7,
@@ -185,3 +147,13 @@ while True:
             else:
                 print(f"Unexpected token format: {token}")
     print("\n")
+
+# Cleanup: Delete the documents using only successfully added IDs
+try:
+    if added_ids:
+        vector_store.delete(ids=added_ids)  # Specify the exact IDs that were added to delete them
+        print("FAISS vector store deleted successfully.")
+    else:
+        print("No documents were added, so none to delete.")
+except ValueError as e:
+    print(f"Error during deletion: {e}")
