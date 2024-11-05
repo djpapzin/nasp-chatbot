@@ -12,3 +12,8 @@ pypdf
 python-dotenv
 replicate
 docx2txt
+langchain-community
+langchain_openai
+together
+langchain_chroma
+bs4
