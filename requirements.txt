@@ -17,3 +17,4 @@ langchain_openai
 together
 langchain_chroma
 bs4
+langchain_together
