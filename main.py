@@ -92,6 +92,10 @@ def main():
     uploaded_files = st.sidebar.file_uploader("Choose PDF, DOCX, or TXT files", type=["pdf", "docx", "doc", "txt"], accept_multiple_files=True)
 
     vector_store, embeddings_model = load_and_process_docs(uploaded_files)
+    
+    # Initialize retriever outside the conditional block
+    retriever = None  # Initialize to None
+
 
     if vector_store and embeddings_model:  # Check if vector_store is not None
         retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
@@ -113,27 +117,30 @@ def main():
 
     reply_container = st.container()
     if submit_button and user_input:
-        with st.spinner('Generating response...'):
-            context = retriever.get_relevant_documents(user_input)
-            formatted_context = "\n\n".join([f"Document {i+1} Content:\n{doc.page_content}" for i, doc in enumerate(context)])
+        if retriever:
+            with st.spinner('Generating response...'):
+                context = retriever.get_relevant_documents(user_input)
+                formatted_context = "\n\n".join([f"Document {i+1} Content:\n{doc.page_content}" for i, doc in enumerate(context)])
 
-            response = client.chat.completions.create(
-                model="meta-llama/Llama-3.2-3B-Instruct-Turbo",  # Replace with your desired model
-                messages=[{"role": "user", "content": f"User Query: {user_input}\n\nContext:\n{formatted_context}"}],
-                max_tokens=512,
-                temperature=0.7,
-                top_p=0.7,
-                top_k=50,
-                repetition_penalty=1,
-                stop=["<|eot_id|>", "<|eom_id|>"],
-                stream=True
-            )
-            output = ""
-            for token in response:
-                if hasattr(token, 'choices'):
-                    output += token.choices[0].delta.content
-                # else:
-                #     st.write(f"Unexpected token format: {token}") # Debug: Check for unexpected token formats
+                response = client.chat.completions.create(
+                    model="meta-llama/Llama-3.2-3B-Instruct-Turbo",  # Replace with your desired model
+                    messages=[{"role": "user", "content": f"User Query: {user_input}\n\nContext:\n{formatted_context}"}],
+                    max_tokens=512,
+                    temperature=0.7,
+                    top_p=0.7,
+                    top_k=50,
+                    repetition_penalty=1,
+                    stop=["<|eot_id|>", "<|eom_id|>"],
+                    stream=True
+                )
+                output = ""
+                for token in response:
+                    if hasattr(token, 'choices'):
+                        output += token.choices[0].delta.content
+                    # else:
+                    #     st.write(f"Unexpected token format: {token}") # Debug: Check for unexpected token formats
+        else:
+            st.error("Please upload and process documents first.") # Clear error message
 
         st.session_state['past'].append(user_input)
         st.session_state['generated'].append(output)
