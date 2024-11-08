@@ -51,19 +51,29 @@ def show_how_to_use():
 
 def setup_file_uploader():
     """Setup the file uploader widget in the sidebar"""
+    print("\n=== Setting up File Uploader ===")
+    
     # Add a title to the sidebar
     st.sidebar.markdown('<h2 style="color: white;">Upload Documents</h2>', 
                        unsafe_allow_html=True)
+    
     # Return the file uploader widget
-    return st.sidebar.file_uploader(
+    uploaded_files = st.sidebar.file_uploader(
         "Choose PDF, DOCX, or TXT files", 
-        type=["pdf", "docx", "doc", "txt"],  # Allowed file types
-        accept_multiple_files=True,  # Allow multiple file uploads
-        help="Maximum file size: 200MB"  # Help text
+        type=["pdf", "docx", "doc", "txt"],
+        accept_multiple_files=True,
+        help="Maximum file size: 200MB"
     )
+    
+    if uploaded_files:
+        print(f"Files uploaded: {[f.name for f in uploaded_files]}")
+    else:
+        print("No files uploaded yet")
+    
+    return uploaded_files
 
 def load_css():
-    """Load custom CSS styles for better UI appearance"""
+    """Load custom CSS styles"""
     st.markdown("""
         <style>
         /* Main container styling */
@@ -116,38 +126,59 @@ def load_css():
 
 def show_chat_interface(vector_store, vector_search, llm_handler):
     """Display chat interface and handle messages"""
+    print("\n=== Chat Interface Initialization ===")
+    
     # Initialize chat session state
     if "messages" not in st.session_state:
+        print("Initializing new chat session")
         st.session_state.messages = []
+        # Add initial bot message
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "Hello. Please enter your question in the chat box to get started."
+        })
+        print("Added welcome message to chat")
 
     # Display chat history
+    print(f"\nCurrent chat history: {len(st.session_state.messages)} messages")
     for message in st.session_state.messages:
+        print(f"Displaying message from {message['role']}")
         with st.chat_message(message["role"], avatar="👤" if message["role"] == "user" else "🤖"):
             st.markdown(f"**{'You' if message['role'] == 'user' else 'NASP Bot'}:** {message['content']}")
 
     # Chat input
     if prompt := st.chat_input("Ask about your documents"):
+        print(f"\n=== New User Input ===\nUser query: {prompt}")
+        
         # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user", avatar="👤"):
             st.markdown(f"**You:** {prompt}")
 
         # Generate and display bot response
+        print("\nGenerating bot response...")
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Thinking..."):
                 docs = vector_search.get_relevant_documents(vector_store, prompt)
                 if docs:
+                    print(f"Found {len(docs)} relevant documents")
                     bot_response = llm_handler.generate_response(prompt, docs)
                     if bot_response:
+                        print("Bot response generated successfully")
                         st.markdown(f"**NASP Bot:** {bot_response}")
                         st.session_state.messages.append({
                             "role": "assistant", 
                             "content": bot_response
                         })
+                else:
+                    print("No relevant documents found")
 
 def load_and_process_docs(uploaded_files):
     """Loads and processes documents from uploaded files."""
+    print("\n=== Document Processing Started ===")
+    
     if uploaded_files:
+        print(f"Processing {len(uploaded_files)} files")
         with st.spinner('📁 Processing your documents...'):
             # Create a progress bar
             progress_bar = st.progress(0)
@@ -158,102 +189,30 @@ def load_and_process_docs(uploaded_files):
             
             for idx, uploaded_file in enumerate(uploaded_files):
                 try:
-                    # Update status
+                    print(f"\nProcessing file {idx + 1}/{total_files}: {uploaded_file.name}")
                     status_text.text(f"Processing file {idx + 1} of {total_files}: {uploaded_file.name}")
                     
-                    # Store filename in metadata
-                    metadata = {
-                        "filename": uploaded_file.name,
-                        "source": uploaded_file.name
-                    }
-                    
-                    with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                        temp_file.write(uploaded_file.read())
-                        temp_file_path = temp_file.name
-
-                    # Load document with metadata
+                    # Process file based on type
                     if uploaded_file.name.endswith('.pdf'):
-                        with st.spinner(f'📄 Reading PDF: {uploaded_file.name}...'):
-                            loader = PyPDFLoader(temp_file_path)
-                            docs = loader.load()
-                            # Add page numbers to metadata
-                            for i, doc in enumerate(docs):
-                                doc.metadata.update({
-                                    **metadata,
-                                    "page": i + 1,
-                                    "total_pages": len(docs)
-                                })
+                        print("Processing PDF file...")
                     elif uploaded_file.name.endswith(('.docx', '.doc')):
-                        with st.spinner(f'📄 Reading DOCX: {uploaded_file.name}...'):
-                            loader = Docx2txtLoader(temp_file_path)
-                            docs = loader.load()
-                            for doc in docs:
-                                doc.metadata.update(metadata)
+                        print("Processing DOCX file...")
                     elif uploaded_file.name.endswith('.txt'):
-                        with st.spinner(f'📄 Reading TXT: {uploaded_file.name}...'):
-                            loader = TextLoader(temp_file_path)
-                            docs = loader.load()
-                            for doc in docs:
-                                doc.metadata.update(metadata)
+                        print("Processing TXT file...")
                     
-                    all_docs.extend(docs)
-                    os.remove(temp_file_path)
-                    
-                    # Update progress bar
+                    # Update progress
                     progress = (idx + 1) / total_files
                     progress_bar.progress(progress)
-                    st.success(f"✅ Successfully loaded {len(docs)} pages from {uploaded_file.name}")
+                    print(f"Progress: {progress * 100}%")
 
                 except Exception as e:
+                    print(f"Error processing file: {str(e)}")
                     st.error(f"Error loading {uploaded_file.name}: {e}")
 
-            # Clear status text after completion
-            status_text.empty()
-            progress_bar.empty()
-
-            if all_docs:
-                with st.spinner('🔄 Processing text chunks...'):
-                    print("Splitting documents into chunks...")
-                    max_context_length = 8192
-                    text_splitter = RecursiveCharacterTextSplitter(chunk_size=max_context_length, chunk_overlap=0)
-                    splits = text_splitter.split_documents(all_docs)
-
-                    if not splits:
-                        st.error("No text chunks were created. Please check the text splitter settings.")
-                        return None, None
-
-                    with st.spinner('🧠 Generating embeddings...'):
-                        embeddings_model = TogetherEmbeddings()
-                        documents = []
-                        for split in splits:
-                            doc = Document(
-                                page_content=split.page_content,
-                                metadata=split.metadata
-                            )
-                            documents.append(doc)
-
-                        embeddings = embeddings_model.embed_documents([doc.page_content for doc in documents])
-                        
-                        uuids = [str(uuid4()) for _ in documents]
-                        docstore = InMemoryDocstore({uuid: doc for uuid, doc in zip(uuids, documents)})
-                        index = faiss.IndexFlatL2(len(embeddings[0]))
-                        vector_store = FAISS(
-                            embedding_function=embeddings_model,
-                            index=index,
-                            docstore=docstore,
-                            index_to_docstore_id={i: uuid for i, uuid in enumerate(uuids)}
-                        )
-
-                        vector_store.add_embeddings(
-                            text_embeddings=list(zip(uuids, embeddings)), 
-                            metadatas=[doc.metadata for doc in documents]
-                        )
-                
-                st.success('✅ All documents processed successfully!')
-                return vector_store, embeddings_model
-            else:
-                st.error("No documents were loaded. Please check the uploaded files.")
-                return None, None
+            print("\n=== Document Processing Complete ===")
+            print(f"Total documents processed: {len(all_docs)}")
+            
+            return all_docs
     else:
-        st.warning("No files uploaded yet.")
-        return None, None
+        print("No files to process")
+        return None
