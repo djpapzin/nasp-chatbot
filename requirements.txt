@@ -4,6 +4,7 @@ accelerate
 sentence_transformers
 streamlit_chat
 streamlit
+streamlit-extras
 faiss-cpu
 tiktoken
 ctransformers

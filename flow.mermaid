@@ -1,0 +1,29 @@
+flowchart TD
+    A[Upload Documents] -->|PDF/DOCX/TXT| B[Document Processing]
+    B -->|RecursiveCharacterTextSplitter| C[Text Chunks]
+    C -->|TogetherEmbeddings| D[Vector Embeddings]
+    D -->|FAISS Store| E[Vector Database]
+    
+    U[User Question] -->|Input| F[Query Processing]
+    F -->|Embedding| E
+    E -->|Similarity Search| G[Retrieved Context]
+    
+    G -->|Format| H[Prompt Template]
+    U -->|Add to Prompt| H
+    H -->|Meta Llama 3.2 3B| I[LLM Response]
+    I -->|Stream| J[Streamlit UI]
+    J -->|Display| K[Chat History]
+    K -->|Update| U
+
+    style A fill:#f9f9f9,stroke:#333,stroke-width:2px
+    style B fill:#e1f5fe,stroke:#333,stroke-width:2px
+    style C fill:#b3e5fc,stroke:#333,stroke-width:2px
+    style D fill:#81d4fa,stroke:#333,stroke-width:2px
+    style E fill:#4fc3f7,stroke:#333,stroke-width:2px
+    style F fill:#29b6f6,stroke:#333,stroke-width:2px
+    style G fill:#03a9f4,stroke:#333,stroke-width:2px
+    style H fill:#01579b,stroke:#333,stroke-width:2px,color:#fff
+    style I fill:#0277bd,stroke:#333,stroke-width:2px,color:#fff
+    style J fill:#0288d1,stroke:#333,stroke-width:2px,color:#fff
+    style K fill:#039be5,stroke:#333,stroke-width:2px
+    style U fill:#29b6f6,stroke:#333,stroke-width:2px

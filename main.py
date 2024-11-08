@@ -56,12 +56,26 @@ def load_and_process_docs(uploaded_files):
                 return None, None
 
             embeddings_model = TogetherEmbeddings()
-            embeddings = embeddings_model.embed_documents([split.page_content for split in splits])
+            
+            # Create documents with proper metadata
+            documents = []
+            for split in splits:
+                doc = Document(
+                    page_content=split.page_content,
+                    metadata=split.metadata  # Use the split's metadata instead
+                )
+                documents.append(doc)
 
-            uuids = [str(uuid4()) for _ in splits]
-            documents = [Document(page_content=split.page_content, metadata={"source": doc.metadata["source"]}) for split, doc in zip(splits, all_docs)]
+            # Generate embeddings for all documents
+            embeddings = embeddings_model.embed_documents([doc.page_content for doc in documents])
+            
+            # Generate UUIDs
+            uuids = [str(uuid4()) for _ in documents]
+            
+            # Create docstore
             docstore = InMemoryDocstore({uuid: doc for uuid, doc in zip(uuids, documents)})
 
+            # Create FAISS index
             index = faiss.IndexFlatL2(len(embeddings[0]))
             vector_store = FAISS(
                 embedding_function=embeddings_model,
@@ -69,7 +83,13 @@ def load_and_process_docs(uploaded_files):
                 docstore=docstore,
                 index_to_docstore_id={i: uuid for i, uuid in enumerate(uuids)}
             )
-            vector_store.add_embeddings(text_embeddings=list(zip(uuids, embeddings)), metadatas=[doc.metadata for doc in documents])
+
+            # Add embeddings with matching metadata
+            vector_store.add_embeddings(
+                text_embeddings=list(zip(uuids, embeddings)), 
+                metadatas=[doc.metadata for doc in documents]  # This ensures metadata matches texts
+            )
+            
             return vector_store, embeddings_model
         else:
             st.error("No documents were loaded. Please check the uploaded files.")
@@ -88,42 +108,42 @@ def main():
 
     st.title("Kwantu Chatbot")
 
+    # Sidebar for document upload
     st.sidebar.title("Upload Documents")
-    uploaded_files = st.sidebar.file_uploader("Choose PDF, DOCX, or TXT files", type=["pdf", "docx", "doc", "txt"], accept_multiple_files=True)
+    uploaded_files = st.sidebar.file_uploader(
+        "Choose PDF, DOCX, or TXT files", 
+        type=["pdf", "docx", "doc", "txt"], 
+        accept_multiple_files=True
+    )
 
+    # Process documents if uploaded
     vector_store, embeddings_model = load_and_process_docs(uploaded_files)
     
-    # Initialize retriever outside the conditional block
-    retriever = None  # Initialize to None
-
-
-    if vector_store and embeddings_model:  # Check if vector_store is not None
+    # Main chat interface
+    if vector_store and embeddings_model:  # Only show chat if documents are processed
         retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+        
+        # Initialize chat session state
+        if "history" not in st.session_state:
+            st.session_state["history"] = []
+        if "generated" not in st.session_state:
+            st.session_state["generated"] = ["Hello! Ask me anything about your documents 🤗"]
+        if "past" not in st.session_state:
+            st.session_state["past"] = ["Hey! 👋"]
 
-    elif uploaded_files: # Only display this message if files were uploaded but couldn't be processed
-        st.error("There was an issue processing your documents. Please check the file formats and content.")
+        # Chat interface
+        with st.form(key='my_form', clear_on_submit=True):
+            user_input = st.text_input("Question:", placeholder="Ask about your Documents", key='input')
+            submit_button = st.form_submit_button(label='Send')
 
-
-    if "history" not in st.session_state:
-        st.session_state["history"] = []
-    if "generated" not in st.session_state:
-        st.session_state["generated"] = ["Hello! Ask me anything about your documents 🤗"]
-    if "past" not in st.session_state:
-        st.session_state["past"] = ["Hey! 👋"]
-
-    with st.form(key='my_form', clear_on_submit=True):
-        user_input = st.text_input("Question:", placeholder="Ask about your Documents", key='input')
-        submit_button = st.form_submit_button(label='Send')
-
-    reply_container = st.container()
-    if submit_button and user_input:
-        if retriever:
+        reply_container = st.container()
+        if submit_button and user_input:
             with st.spinner('Generating response...'):
                 context = retriever.get_relevant_documents(user_input)
                 formatted_context = "\n\n".join([f"Document {i+1} Content:\n{doc.page_content}" for i, doc in enumerate(context)])
 
                 response = client.chat.completions.create(
-                    model="meta-llama/Llama-3.2-3B-Instruct-Turbo",  # Replace with your desired model
+                    model="meta-llama/Llama-3.2-3B-Instruct-Turbo",
                     messages=[{"role": "user", "content": f"User Query: {user_input}\n\nContext:\n{formatted_context}"}],
                     max_tokens=512,
                     temperature=0.7,
@@ -137,19 +157,27 @@ def main():
                 for token in response:
                     if hasattr(token, 'choices'):
                         output += token.choices[0].delta.content
-                    # else:
-                    #     st.write(f"Unexpected token format: {token}") # Debug: Check for unexpected token formats
-        else:
-            st.error("Please upload and process documents first.") # Clear error message
 
-        st.session_state['past'].append(user_input)
-        st.session_state['generated'].append(output)
+                st.session_state['past'].append(user_input)
+                st.session_state['generated'].append(output)
 
-    if st.session_state['generated']:
-        with reply_container:
-            for i in range(len(st.session_state['generated'])):
-                message(st.session_state["past"][i], is_user=True, key=str(i) + '_user', avatar_style="thumbs")
-                message(st.session_state['generated'][i], key=str(i), avatar_style="fun-emoji")
+        if st.session_state.get('generated'):
+            with reply_container:
+                for i in range(len(st.session_state['generated'])):
+                    message(st.session_state["past"][i], is_user=True, key=str(i) + '_user', avatar_style="thumbs")
+                    message(st.session_state['generated'][i], key=str(i), avatar_style="fun-emoji")
+
+    else:
+        # Simplified welcome message without extras
+        st.info("👋 Welcome! Please upload your documents to start chatting.")
+        
+        with st.expander("How to use"):
+            st.markdown("""
+            1. Use the sidebar to upload your documents (PDF, DOCX, or TXT)
+            2. Wait for the documents to be processed
+            3. Once processing is complete, the chat interface will appear
+            4. Ask questions about your documents!
+            """)
 
 if __name__ == "__main__":
     main()
