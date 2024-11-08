@@ -1,4 +1,21 @@
+- [ ] Update the NLP RAG Chatbot Scope document with ChromaDB and FAISS research.
+- [ ] Server Installation Research:
+  - [ ] How to deploy a database on a local server.
+  - [ ] Research server requirements (Google Doc), set up over the weekend, relevant installation.
+  - [ ] Determine storage requirements for installing FAISS vector storage on the CentOS monitoring server with low specs.
+  - [ ] Upload default files for users if they don't have files to upload.
+- [ ] Telegram Installation:
+  - [ ] Enable document upload.
+  - [ ] Ensure the same welcome message as the Streamlit app is displayed.
+  - [ ] Decide where to deploy the bot.
+- [ ] Translation:
+  - [ ] Use Llama 3.1 and Azure Speech Services for translation, especially Uzbek.
+  - [ ] Create a prompt template to assist with correct translation.
+  - [ ] Generate suggested questions for documents.
 
-upload default files for user ifthey dot have files to upload
-
-
+Current Stack:
+- [ ] Uses Together AI (Llama model).
+- [ ] Supports multiple document types (PDF, DOCX, TXT).
+- [ ] Uses FAISS as a vector store for embeddings via TogetherAI API.
+- [ ] Has file upload functionality.
+- [ ] Has Streamlit UI.
