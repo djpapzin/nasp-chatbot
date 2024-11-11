@@ -7,3 +7,4 @@ docs/*
 .cursorignore
 __pycache__/
 /faiss_index
+*.cfg
