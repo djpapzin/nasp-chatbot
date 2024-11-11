@@ -14,8 +14,27 @@ class VectorSearch:
         
     @st.cache_resource
     def load_or_create_vector_store(_self):
-        """Load the pre-built vector store"""
+        """Load the pre-built vector store or create a new one"""
         try:
+            # Check if index files exist
+            index_file = _self.index_path / "default_index.faiss"
+            pkl_file = _self.index_path / "default_index.pkl"
+            
+            if not (index_file.exists() and pkl_file.exists()):
+                st.warning("FAISS index files not found. Creating new vector store...")
+                # Initialize empty vector store
+                vector_store = FAISS.from_texts(
+                    ["Initial document"], 
+                    _self.embeddings
+                )
+                # Save it
+                _self.index_path.mkdir(exist_ok=True)
+                vector_store.save_local(
+                    folder_path=str(_self.index_path),
+                    index_name="default_index"
+                )
+                return vector_store
+                
             return FAISS.load_local(
                 folder_path=str(_self.index_path),
                 embeddings=_self.embeddings,

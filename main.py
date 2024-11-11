@@ -9,6 +9,14 @@ def initialize_vector_store():
     """Initialize vector store with default documents"""
     vector_search = VectorSearch()
     vector_store = vector_search.load_or_create_vector_store()
+    
+    if vector_store is None:
+        st.error("""
+        Failed to initialize vector store. 
+        Please check that the FAISS index files are present in the repository.
+        """)
+        st.stop()
+        
     return vector_store, vector_search
 
 def main():
