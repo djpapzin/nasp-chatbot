@@ -78,10 +78,13 @@ def main():
             
             with st.chat_message("assistant"):
                 with st.spinner("Thinking..."):
-                    response = llm_handler.generate_response(
-                        prompt, 
-                        vector_store.similarity_search(prompt)
+                    # Get scored documents
+                    docs_and_scores = vector_search.similarity_search_with_score(
+                        vector_store, 
+                        prompt
                     )
+                    # Generate response with scored documents
+                    response = llm_handler.generate_response(prompt, docs_and_scores)
                     st.markdown(response)
                     st.session_state.messages.append({"role": "assistant", "content": response})
 
