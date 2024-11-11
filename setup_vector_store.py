@@ -127,10 +127,10 @@ def main():
     if documents:
         # Configure text splitting parameters
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,
-            chunk_overlap=150,
+            chunk_size=1000,
+            chunk_overlap=200,
             length_function=len,
-            separators=["\n\n", "\n", " ", ""]
+            separators=["\n\n", "\n", ". ", " ", ""]
         )
         # Split documents into smaller chunks
         split_docs = text_splitter.split_documents(documents)

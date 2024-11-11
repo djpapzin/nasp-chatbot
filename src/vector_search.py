@@ -49,12 +49,19 @@ class VectorSearch:
     def similarity_search_with_score(self, vector_store, query, k=4):
         """Enhanced similarity search with scores"""
         try:
+            # Add metadata filtering
+            filter_dict = {
+                "page": {"$exists": True},  # Ensure page number exists
+                "source": {"$exists": True}  # Ensure source exists
+            }
+            
             docs_and_scores = vector_store.similarity_search_with_score(
                 query,
                 k=k,
-                fetch_k=20
+                filter=filter_dict,
+                fetch_k=50
             )
-            return docs_and_scores
+            return self.deduplicate_results(docs_and_scores)
         except Exception as e:
             print(f"Error in similarity search: {str(e)}")
             return []

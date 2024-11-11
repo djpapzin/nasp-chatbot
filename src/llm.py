@@ -1,5 +1,6 @@
 from together import Together
 import streamlit as st
+import os
 
 class LLMHandler:
     def __init__(self):
@@ -7,28 +8,43 @@ class LLMHandler:
         self.client = Together()
         self.model = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 
-    def create_document_summary(self, docs):
-        """Create a summary of available documents"""
-        doc_summary = {}
-        for doc in docs:
-            filename = doc.metadata.get('filename', 'N/A')
-            if filename not in doc_summary:
-                doc_summary[filename] = {
-                    'total_pages': doc.metadata.get('total_pages', 'N/A'),
-                    'pages_referenced': set([doc.metadata.get('page', 1)])
+    def create_document_context(self, docs_and_scores):
+        """Create a formatted context of available documents"""
+        unique_docs = {}
+        
+        for doc, score in docs_and_scores:
+            # Extract just the filename without path and clean it up
+            raw_filename = doc.metadata.get('source', 'Unknown Document')
+            filename = os.path.basename(raw_filename)  # Remove path
+            filename = filename.replace('_', ' ')  # Replace underscores with spaces
+            filename = os.path.splitext(filename)[0]  # Remove file extension
+            
+            if filename not in unique_docs:
+                unique_docs[filename] = {
+                    'score': score,
+                    'pages': set([doc.metadata.get('page', 1)]),
+                    'total_pages': doc.metadata.get('total_pages', 'Unknown')
                 }
             else:
-                doc_summary[filename]['pages_referenced'].add(doc.metadata.get('page', 1))
-
-        # Format document summary
-        docs_context = "Available documents:\n"
-        for filename, info in doc_summary.items():
-            docs_context += f"- {filename} (Total pages: {info['total_pages']})\n"
+                unique_docs[filename]['pages'].add(doc.metadata.get('page', 1))
         
-        return docs_context
+        # Format document list
+        context = "I have access to the following documents:\n\n"
+        for filename, info in unique_docs.items():
+            context += f"- {filename}\n"
+        
+        return context
 
     def generate_response(self, prompt, docs_and_scores):
-        """Generate response using Together API with scored documents"""
+        """Generate response using LLM"""
+        if not docs_and_scores:
+            return "I'm sorry, I couldn't find any relevant documents to answer your question."
+            
+        # Special handling for document listing request
+        if "list" in prompt.lower() and "documents" in prompt.lower():
+            return self.create_document_context(docs_and_scores)
+            
+        # Regular response generation
         try:
             # Create document summary with scores
             docs_context = "Available documents:\n"
@@ -64,3 +80,16 @@ class LLMHandler:
             st.error(error_message)
             print(f"Error: {error_message}")
             return None
+
+    def deduplicate_results(self, docs_and_scores, similarity_threshold=0.95):
+        """Deduplicate similar results"""
+        unique_results = []
+        seen_content = set()
+        
+        for doc, score in docs_and_scores:
+            content_hash = hash(doc.page_content[:100])  # Use first 100 chars as signature
+            if content_hash not in seen_content:
+                unique_results.append((doc, score))
+                seen_content.add(content_hash)
+        
+        return unique_results
