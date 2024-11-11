@@ -46,22 +46,37 @@ class VectorSearch:
             st.error("Please ensure the FAISS index has been properly initialized.")
             return None
 
-    def similarity_search_with_score(self, vector_store, query, k=4):
-        """Enhanced similarity search with scores"""
+    def similarity_search_with_score(self, query, k=4):
         try:
-            # Add metadata filtering
-            filter_dict = {
-                "page": {"$exists": True},  # Ensure page number exists
-                "source": {"$exists": True}  # Ensure source exists
-            }
-            
-            docs_and_scores = vector_store.similarity_search_with_score(
+            # Get more initial results
+            results = self.vector_store.similarity_search_with_score(
                 query,
-                k=k,
-                filter=filter_dict,
-                fetch_k=50
+                k=k*3,  # Get more candidates
+                fetch_k=20  # Increase fetch_k
             )
-            return self.deduplicate_results(docs_and_scores)
+            
+            # Better filtering
+            filtered_results = []
+            seen_content = set()
+            
+            for doc, score in sorted(results, key=lambda x: x[1]):
+                # Skip publication metadata
+                if "Published by" in doc.page_content:
+                    continue
+                    
+                # Skip empty or very short content
+                if len(doc.page_content.strip()) < 50:
+                    continue
+                    
+                content_hash = hash(doc.page_content[:100])
+                if content_hash not in seen_content:
+                    filtered_results.append((doc, score))
+                    seen_content.add(content_hash)
+                    
+                if len(filtered_results) == k:
+                    break
+                    
+            return filtered_results[:k]
         except Exception as e:
             print(f"Error in similarity search: {str(e)}")
             return []
