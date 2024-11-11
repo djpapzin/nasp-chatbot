@@ -6,5 +6,4 @@ docs/*
 /chroma_db
 .cursorignore
 __pycache__/
-/faiss_index
 *.cfg
