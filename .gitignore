@@ -3,7 +3,7 @@
 /chroma_langchain_db
 docs/*
 !docs/.gitkeep
-main copy.py
 /chroma_db
 .cursorignore
 __pycache__/
+/faiss_index

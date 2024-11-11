@@ -1,218 +1,108 @@
 import streamlit as st
-from together import Together
+from typing import List
 import os
-from dotenv import load_dotenv
-from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document
-from langchain_together import TogetherEmbeddings
-import faiss
-from langchain_community.docstore.in_memory import InMemoryDocstore
-from langchain_community.vectorstores import FAISS
-from uuid import uuid4
-import tempfile
-from src.llm import LLMHandler
 
 def setup_page():
-    """Configure initial page settings for the Streamlit app"""
-    # Set basic page configuration including title, icon, and layout
+    """Configure initial page settings"""
     st.set_page_config(
         page_title="NASP Chatbot",
         page_icon="🤖",
-        layout="wide",  # Use wide layout for better space utilization
-        initial_sidebar_state="expanded"  # Start with sidebar expanded
+        layout="wide",
+        initial_sidebar_state="expanded"
     )
 
 def show_header():
-    """Display the main header and welcome message at the top of the page"""
-    # Display main title with custom styling
+    """Display header and welcome message"""
     st.markdown('<div class="title-container"><h1 class="title-text">NASP Chatbot</h1></div>', 
                 unsafe_allow_html=True)
     
-    # Display welcome message with custom styling
     st.markdown("""
         <div class="welcome-box">
             👋 Welcome! This is a prototype chatbot for the National Agency of Social Protection. 
-            You can use it to ask questions about a library of reports, evaluations, research and other documents.
+            You can use it to ask questions about a library of reports, evaluations, research, and other documents.
         </div>
     """, unsafe_allow_html=True)
 
 def show_how_to_use():
-    """Display the How to Use section in an expandable container"""
-    with st.expander("How to use"):
+    """Display usage instructions"""
+    with st.expander("ℹ️ How to use", expanded=False):
         st.markdown("""
-            <ol>
-                <li>⬅️ Use the sidebar to upload your documents (PDF, DOCX, or TXT)</li>
-                <li>Wait for the documents to be processed</li>
-                <li>Once processing is complete, the chat interface will appear</li>
-                <li>Ask questions about your documents!</li>
-            </ol>
-        """, unsafe_allow_html=True)
+        **How to Use the NASP Chatbot:**
 
-def setup_file_uploader():
-    """Setup the file uploader widget in the sidebar"""
-    print("\n=== Setting up File Uploader ===")
-    
-    # Add a title to the sidebar
-    st.sidebar.markdown('<h2 style="color: white;">Upload Documents</h2>', 
-                       unsafe_allow_html=True)
-    
-    # Return the file uploader widget
+        1. **Pre-loaded Documents**: The chatbot comes pre-loaded with key social protection documents.
+        2. **Upload Additional Documents**: You can upload additional documents in PDF, DOCX, or TXT format.
+        3. **Ask Questions**: Type your questions naturally about any loaded document.
+        4. **Receive Answers**: The bot will provide answers based on the document content.
+
+        **Pre-loaded Documents:**
+        - *[Exploring Pathways to Decent Employment, Formality and Inclusion in Central Asia](https://socialprotection.org/discover/publications/exploring-pathways-decent-employment-formality-and-inclusion-central-asia)*
+        - *[The “Social Protection Innovation and Learning” project in Uzbekistan](https://socialprotection.org/discover/publications/%E2%80%9Csocial-protection-innovation-and-learning%E2%80%9D-project-uzbekistan)*
+        - *[Uzbekistan Public Expenditure Review: Better Value for Money in Human Capital and Water Infrastructure](https://socialprotection.org/discover/publications/uzbekistan-public-expenditure-review-better-value-money-human-capital-and)*
+        - *[Valuing and investing in unpaid care and domestic work - country case study: Uzbekistan](https://socialprotection.org/discover/publications/valuing-and-investing-unpaid-care-and-domestic-work-country-case-study)*
+        - *[Prioritising universal health insurance in Uzbekistan (One pager)](https://socialprotection.org/discover/publications/prioritising-universal-health-insurance-uzbekistan-one-pager)*
+        """)
+
+def setup_file_uploader() -> List:
+    """Setup file upload widget"""
+    st.sidebar.markdown("### 📄 Upload Additional Documents")
     uploaded_files = st.sidebar.file_uploader(
-        "Choose PDF, DOCX, or TXT files", 
-        type=["pdf", "docx", "doc", "txt"],
-        accept_multiple_files=True,
-        help="Maximum file size: 200MB"
+        "Upload PDF, DOCX, or TXT files",
+        type=["pdf", "docx", "txt"],
+        accept_multiple_files=True
     )
     
     if uploaded_files:
-        print(f"Files uploaded: {[f.name for f in uploaded_files]}")
-    else:
-        print("No files uploaded yet")
+        st.sidebar.markdown("### 📚 Uploaded Documents")
+        for file in uploaded_files:
+            st.sidebar.markdown(f"- {file.name}")
     
     return uploaded_files
 
+def show_chat_interface(vector_store, vector_search, llm_handler):
+    """Display chat interface"""
+    st.markdown("### 💬 Chat")
+    
+    # Initialize chat history
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # Display chat history
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # Chat input
+    if prompt := st.chat_input("Ask your question here"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Get relevant documents
+        docs = vector_search.similarity_search(vector_store, prompt)
+        
+        # Generate response
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                response = llm_handler.generate_response(prompt, docs)
+                st.markdown(response)
+                st.session_state.messages.append({"role": "assistant", "content": response})
+
 def load_css():
-    """Load custom CSS styles"""
+    """Load custom CSS"""
     st.markdown("""
         <style>
-        /* Main container styling */
-        .main {
-            padding: 2rem;
-        }
-        
-        /* Title container styling */
         .title-container {
-            background-color: #1E3D59;
-            padding: 2rem;
-            border-radius: 10px;
-            margin-bottom: 2rem;
             text-align: center;
+            padding: 1rem;
         }
-        
-        /* Title text styling */
         .title-text {
-            color: white;
-            font-size: 3rem;
-            font-weight: bold;
-            margin: 0;
+            color: #2e7d32;
         }
-        
-        /* Welcome box styling */
         .welcome-box {
-            background-color: #17A2B8;
-            color: white;
-            padding: 1.5rem;
-            border-radius: 10px;
-            margin: 1.5rem 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        /* How to use section styling */
-        .stExpander {
-            margin: 1.5rem 0;
-            border: none;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            border-radius: 10px;
-        }
-        
-        /* Success/Error message styling */
-        .stSuccess, .stError {
-            padding: 0.5rem !important;
-            border-radius: 0.5rem !important;
+            padding: 1rem;
+            background-color: #f5f5f5;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
         }
         </style>
     """, unsafe_allow_html=True)
-
-def show_chat_interface(vector_store, vector_search, llm_handler):
-    """Display chat interface and handle messages"""
-    print("\n=== Chat Interface Initialization ===")
-    
-    # Initialize chat session state
-    if "messages" not in st.session_state:
-        print("Initializing new chat session")
-        st.session_state.messages = []
-        # Add initial bot message
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": "Hello. Please enter your question in the chat box to get started."
-        })
-        print("Added welcome message to chat")
-
-    # Display chat history
-    print(f"\nCurrent chat history: {len(st.session_state.messages)} messages")
-    for message in st.session_state.messages:
-        print(f"Displaying message from {message['role']}")
-        with st.chat_message(message["role"], avatar="👤" if message["role"] == "user" else "🤖"):
-            st.markdown(f"**{'You' if message['role'] == 'user' else 'NASP Bot'}:** {message['content']}")
-
-    # Chat input
-    if prompt := st.chat_input("Ask about your documents"):
-        print(f"\n=== New User Input ===\nUser query: {prompt}")
-        
-        # Add user message
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(f"**You:** {prompt}")
-
-        # Generate and display bot response
-        print("\nGenerating bot response...")
-        with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Thinking..."):
-                docs = vector_search.get_relevant_documents(vector_store, prompt)
-                if docs:
-                    print(f"Found {len(docs)} relevant documents")
-                    bot_response = llm_handler.generate_response(prompt, docs)
-                    if bot_response:
-                        print("Bot response generated successfully")
-                        st.markdown(f"**NASP Bot:** {bot_response}")
-                        st.session_state.messages.append({
-                            "role": "assistant", 
-                            "content": bot_response
-                        })
-                else:
-                    print("No relevant documents found")
-
-def load_and_process_docs(uploaded_files):
-    """Loads and processes documents from uploaded files."""
-    print("\n=== Document Processing Started ===")
-    
-    if uploaded_files:
-        print(f"Processing {len(uploaded_files)} files")
-        with st.spinner('📁 Processing your documents...'):
-            # Create a progress bar
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            all_docs = []
-            total_files = len(uploaded_files)
-            
-            for idx, uploaded_file in enumerate(uploaded_files):
-                try:
-                    print(f"\nProcessing file {idx + 1}/{total_files}: {uploaded_file.name}")
-                    status_text.text(f"Processing file {idx + 1} of {total_files}: {uploaded_file.name}")
-                    
-                    # Process file based on type
-                    if uploaded_file.name.endswith('.pdf'):
-                        print("Processing PDF file...")
-                    elif uploaded_file.name.endswith(('.docx', '.doc')):
-                        print("Processing DOCX file...")
-                    elif uploaded_file.name.endswith('.txt'):
-                        print("Processing TXT file...")
-                    
-                    # Update progress
-                    progress = (idx + 1) / total_files
-                    progress_bar.progress(progress)
-                    print(f"Progress: {progress * 100}%")
-
-                except Exception as e:
-                    print(f"Error processing file: {str(e)}")
-                    st.error(f"Error loading {uploaded_file.name}: {e}")
-
-            print("\n=== Document Processing Complete ===")
-            print(f"Total documents processed: {len(all_docs)}")
-            
-            return all_docs
-    else:
-        print("No files to process")
-        return None
