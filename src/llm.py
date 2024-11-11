@@ -27,19 +27,29 @@ class LLMHandler:
         
         return docs_context
 
-    def generate_response(self, prompt, docs):
-        """Generate response using Together API"""
+    def generate_response(self, prompt, docs_and_scores):
+        """Generate response using Together API with scored documents"""
         try:
-            # Create document summary and context
-            docs_context = self.create_document_summary(docs)
-            context = f"{docs_context}\n\nContent:\n" + "\n".join([doc.page_content for doc in docs])
+            # Create document summary with scores
+            docs_context = "Available documents:\n"
+            for doc, score in docs_and_scores:
+                filename = doc.metadata.get('filename', 'N/A')
+                page = doc.metadata.get('page', 'N/A')
+                docs_context += f"- {filename} (Page: {page}, Relevance: {score:.2f})\n"
+            
+            # Create context from documents
+            context = f"{docs_context}\n\nContent:\n"
+            for doc, score in docs_and_scores:
+                context += f"\nFrom {doc.metadata.get('filename', 'Unknown')} (Page {doc.metadata.get('page', 'N/A')}):\n"
+                context += doc.page_content + "\n"
             
             # Generate response
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": """You are a helpful assistant that answers questions based on the provided context. 
-                    When discussing documents, always mention their filenames and page counts when available. 
+                    When discussing documents, always mention their filenames and page counts when available.
+                    Include relevance scores when citing information to show confidence in the sources.
                     If you cannot find specific information in the context, say so."""},
                     {"role": "user", "content": f"Context: {context}\n\nQuestion: {prompt}"}
                 ],
