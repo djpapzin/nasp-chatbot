@@ -2,8 +2,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from langchain_together import TogetherEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import PyPDFLoader
+from langchain.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 def main():
@@ -43,9 +42,17 @@ def main():
     split_docs = text_splitter.split_documents(documents)
     print(f"Creating vector store from {len(split_docs)} document chunks...")
     
-    # Create and save vector store
-    vector_store = FAISS.from_documents(split_docs, embeddings)
-    vector_store.save_local(folder_path=str(index_path), index_name="default_index")
+    # Create FAISS index
+    vector_store = FAISS.from_documents(
+        documents=split_docs,
+        embedding=embeddings
+    )
+    
+    # Save locally (you can sync this directory to cloud storage)
+    vector_store.save_local("faiss_index")
+    
+    # To load later
+    vector_store = FAISS.load_local("faiss_index", embeddings)
     
     print("Vector store created successfully!")
 

@@ -1,9 +1,9 @@
-- [ ] Update the NLP RAG Chatbot Scope document with ChromaDB and FAISS research.
-- [ ] Server Installation Research:
-  - [ ] How to deploy a database on a local server.
-  - [ ] Research server requirements (Google Doc), set up over the weekend, relevant installation.
-  - [ ] Determine storage requirements for installing FAISS vector storage on the CentOS monitoring server with low specs.
-  - [ ] Upload default files for users if they don't have files to upload.
+- [x] Update the NLP RAG Chatbot Scope document with ChromaDB and FAISS research.
+- [x] Server Installation Research:
+  - [x] How to deploy a database on a local server.
+  - [x] Research server requirements (Google Doc), set up over the weekend, relevant installation.
+  - [x] Determine storage requirements for installing FAISS vector storage on the CentOS monitoring server with low specs.
+  - [x] Use default files for users if they don't have files to upload.
 - [ ] Telegram Installation:
   - [ ] Enable document upload.
   - [ ] Ensure the same welcome message as the Streamlit app is displayed.
@@ -14,8 +14,12 @@
   - [ ] Generate suggested questions for documents.
 
 Current Stack:
-- [ ] Uses Together AI (Llama model).
-- [ ] Supports multiple document types (PDF, DOCX, TXT).
-- [ ] Uses FAISS as a vector store for embeddings via TogetherAI API.
-- [ ] Has file upload functionality.
+- [ ] Uses Together AI for LLM.
+  - [ ] mistralai/Mixtral-8x7B-Instruct-v0.1
+- [ ] Supports multiple document types for uploading (PDF, DOCX, TXT).
+  - [ ] Has file upload functionality.
+  - [ ] Has default documents loaded
+- [ ] Uses FAISS as a vector store running locally. 
+- [ ] Embeddings via TogetherAI API.
+  - [ ] togethercomputer/m2-bert-80M-8k-retrieval
 - [ ] Has Streamlit UI.
