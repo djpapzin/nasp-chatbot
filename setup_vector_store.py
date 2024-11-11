@@ -11,6 +11,8 @@ from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 import time
 from ratelimit import limits, sleep_and_retry
+import requests
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 # Define rate limit: 10 calls per second
 @sleep_and_retry
@@ -48,26 +50,33 @@ def embed_documents(documents):
     return results
 
 def create_vector_store(split_docs, embeddings):
-    """Create vector store without batch processing"""
+    """Create vector store with error handling and timeouts"""
     total_chunks = len(split_docs)
     
     print(f"\n=== Creating Vector Store ===")
     print(f"Total chunks to process: {total_chunks}")
     print("\nStarting vector store creation...")
-    print("Note: This process may take several minutes.")
+    
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def create_embeddings_with_retry():
+        try:
+            return FAISS.from_documents(
+                documents=split_docs,
+                embedding=embeddings
+            )
+        except requests.exceptions.Timeout:
+            print("\nAPI timeout - retrying...")
+            raise
+        except Exception as e:
+            print(f"\nError: {str(e)}")
+            raise
     
     try:
-        # Create vector store without any extra parameters
-        vector_store = FAISS.from_documents(
-            documents=split_docs,
-            embedding=embeddings
-        )
-        
+        vector_store = create_embeddings_with_retry()
         print("\nVector store created successfully!")
         return vector_store
-            
     except Exception as e:
-        print(f"\nError during vector store creation: {str(e)}")
+        print(f"\nFailed after retries: {str(e)}")
         return None
 
 def main():
