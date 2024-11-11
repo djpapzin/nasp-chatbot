@@ -1,9 +1,18 @@
+# Environment and virtual environments
 .env
 /.venv
+
+# Database files
+/chroma_db
 /chroma_langchain_db
+
+# Documentation
 docs/*
 !docs/.gitkeep
-/chroma_db
-.cursorignore
+
+# Python
 __pycache__/
 *.cfg
+
+# IDE and editor files
+.cursorignore
