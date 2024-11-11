@@ -1,3 +1,4 @@
+# Import required libraries
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -5,20 +6,95 @@ from langchain_together import TogetherEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
+import re
+from concurrent.futures import ThreadPoolExecutor
+from tqdm import tqdm
+import time
+
+def preprocess_text(text):
+    """Clean and prepare text for embedding"""
+    # Remove extra whitespace
+    text = " ".join(text.split())
+    # Remove special characters but keep sentence structure
+    text = re.sub(r'[^\w\s\.\,\?\!]', ' ', text)
+    # Normalize whitespace
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+def process_documents_in_batches(documents, batch_size=10):
+    """Process documents in batches for faster embedding"""
+    for i in range(0, len(documents), batch_size):
+        # Get a batch of documents
+        batch = documents[i:i + batch_size]
+        # Process batch and show progress
+        print(f"Processing batch {i//batch_size + 1}/{len(documents)//batch_size + 1}")
+        yield batch
+
+def embed_documents(documents):
+    """Embed multiple documents in parallel using thread pool"""
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        # Process multiple documents simultaneously
+        futures = [executor.submit(process_document, doc) for doc in documents]
+        # Collect results from all threads
+        results = [f.result() for f in futures]
+    return results
+
+def create_vector_store(split_docs, embeddings):
+    """Create vector store with detailed progress tracking"""
+    total_chunks = len(split_docs)
+    batch_size = 32
+    total_batches = (total_chunks + batch_size - 1) // batch_size
+    
+    print(f"\n=== Creating Vector Store ===")
+    print(f"Total chunks to process: {total_chunks}")
+    print(f"Batch size: {batch_size}")
+    print(f"Total batches: {total_batches}")
+    print("\nStarting embedding creation...")
+    print("Note: This process involves API calls to Together AI for each batch.")
+    print("Expect approximately 1-2 seconds per batch due to API rate limits.")
+    
+    start_time = time.time()
+    processed_chunks = 0
+    
+    try:
+        with tqdm(total=total_chunks, desc="Processing chunks") as pbar:
+            for i in range(0, total_chunks, batch_size):
+                batch = split_docs[i:i + batch_size]
+                # Process batch
+                if i % (batch_size * 10) == 0:  # Every 10 batches
+                    elapsed = time.time() - start_time
+                    rate = processed_chunks / elapsed if elapsed > 0 else 0
+                    eta = (total_chunks - processed_chunks) / rate if rate > 0 else 0
+                    print(f"\nProgress update:")
+                    print(f"- Processed {processed_chunks}/{total_chunks} chunks")
+                    print(f"- Current rate: {rate:.2f} chunks/second")
+                    print(f"- Estimated time remaining: {eta/60:.1f} minutes")
+                
+                processed_chunks += len(batch)
+                pbar.update(len(batch))
+                
+        # Create and return the vector store
+        vector_store = FAISS.from_documents(split_docs, embeddings)
+        return vector_store
+        
+    except Exception as e:
+        print(f"\nError during vector store creation: {str(e)}")
+        return None
 
 def main():
+    """Main function to set up the vector store with document embeddings"""
     print("=== Starting Vector Store Setup ===")
     
-    # Check environment
+    # Check if API key is present in environment
     api_key = os.getenv("TOGETHER_API_KEY")
     print(f"API Key present: {bool(api_key)}")
     
-    # Check paths
+    # Verify document directory and list available PDFs
     docs_path = Path("src/default_docs")
     print(f"Documents directory exists: {docs_path.exists()}")
-    print(f"Documents found: {list(docs_path.glob('*.pdf'))}")
+    print(f"Documents found: {[pdf_file.name for pdf_file in docs_path.glob('*.pdf')]}")
     
-    # Initialize embeddings
+    # Initialize the embedding model
     try:
         embeddings = TogetherEmbeddings(
             model="togethercomputer/m2-bert-80M-8k-retrieval",
@@ -29,46 +105,52 @@ def main():
         print(f"Error initializing embeddings: {e}")
         return
         
-    # Process documents
+    # Load and process all PDF documents
     documents = []
-    for pdf_file in docs_path.glob("*.pdf"):
-        print(f"\nProcessing: {pdf_file.name}")
-        try:
-            loader = PyPDFLoader(str(pdf_file))
-            docs = loader.load()
-            print(f"- Loaded {len(docs)} pages")
-            documents.extend(docs)
-        except Exception as e:
-            print(f"- Error: {e}")
+    with tqdm(total=len(list(docs_path.glob("*.pdf"))), desc="Processing PDFs") as pbar:
+        for pdf_file in docs_path.glob("*.pdf"):
+            print(f"\nProcessing: {pdf_file.name}")
+            try:
+                # Load PDF file
+                loader = PyPDFLoader(str(pdf_file))
+                docs = loader.load()
+                # Clean text content for each document
+                for doc in docs:
+                    doc.page_content = preprocess_text(doc.page_content)
+                documents.extend(docs)
+                print(f"- Loaded {len(docs)} pages")
+            except Exception as e:
+                print(f"- Error: {e}")
+            pbar.update(1)
     
     print(f"\nTotal documents loaded: {len(documents)}")
     
-    # Split documents
+    # Process documents if any were loaded successfully
     if documents:
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        # Configure text splitting parameters
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=500,
+            chunk_overlap=150,
+            length_function=len,
+            separators=["\n\n", "\n", " ", ""]
+        )
+        # Split documents into smaller chunks
         split_docs = text_splitter.split_documents(documents)
         print(f"Created {len(split_docs)} text chunks")
         
-        print("\nCreating vector store...")
-        print("This may take a few minutes depending on the number of chunks...")
-        try:
-            vector_store = FAISS.from_documents(
-                documents=split_docs,
-                embedding=embeddings
-            )
-            print("Vector store created!")
-            
+        vector_store = create_vector_store(split_docs, embeddings)
+        if vector_store:
             print("\nSaving vector store...")
             vector_store.save_local(
                 folder_path="faiss_index",
                 index_name="default_index"
             )
             print(f"Vector store saved successfully to {os.path.abspath('faiss_index')}")
-            print("\n=== Setup Complete ===")
-        except Exception as e:
-            print(f"Error creating/saving vector store: {e}")
+        else:
+            print("Failed to create vector store")
     else:
         print("No documents to process!")
 
+# Entry point of the script
 if __name__ == "__main__":
     main()
