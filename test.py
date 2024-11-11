@@ -31,9 +31,9 @@ def test_vector_store():
         
         # Test queries with similarity scores
         test_queries = [
-            "What does the SPIL document say about social protection?",
-            "What are the main findings about unpaid care work in Uzbekistan?",
-            "Tell me about employment services for persons with disabilities",
+            "List which documents you have access to?",
+            "Summarise GIZ_SPIL_Social_Protection_Uzbekistan_2022.pdf",
+            "What are the main forms of informal employment in Uzbekistan",
         ]
         
         for query in test_queries:
@@ -43,7 +43,6 @@ def test_vector_store():
             docs_and_scores = vector_store.similarity_search_with_score(
                 query,
                 k=4,  # Get more results
-                fetch_k=20  # Fetch more candidates
             )
             
             print(f"Found {len(docs_and_scores)} results:")
@@ -53,7 +52,6 @@ def test_vector_store():
                 print(f"Source: {os.path.basename(doc.metadata.get('source', 'Unknown'))}")
                 print(f"Page: {doc.metadata.get('page', 'Unknown')}")
                 print(f"Content preview: {doc.page_content[:200]}...")
-    
     except Exception as e:
         print(f"Error during testing: {str(e)}")
 

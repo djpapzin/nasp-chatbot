@@ -19,7 +19,7 @@ class VectorSearch:
             return FAISS.load_local(
                 folder_path=str(_self.index_path),
                 embeddings=_self.embeddings,
-                index_name="index",
+                index_name="default_index",
                 allow_dangerous_deserialization=True
             )
         except Exception as e:
