@@ -19,10 +19,23 @@ class VectorSearch:
             return FAISS.load_local(
                 folder_path=str(_self.index_path),
                 embeddings=_self.embeddings,
-                index_name="default_index",
+                index_name="index",
                 allow_dangerous_deserialization=True
             )
         except Exception as e:
             st.error(f"Error loading vector store: {str(e)}")
             st.error("Please ensure the FAISS index has been properly initialized.")
             return None
+
+    def similarity_search_with_score(self, vector_store, query, k=4):
+        """Enhanced similarity search with scores"""
+        try:
+            docs_and_scores = vector_store.similarity_search_with_score(
+                query,
+                k=k,
+                fetch_k=20
+            )
+            return docs_and_scores
+        except Exception as e:
+            print(f"Error in similarity search: {str(e)}")
+            return []
