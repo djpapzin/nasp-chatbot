@@ -10,6 +10,14 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 import time
+from ratelimit import limits, sleep_and_retry
+
+# Define rate limit: 10 calls per second
+@sleep_and_retry
+@limits(calls=10, period=1)
+def rate_limited_embedding(embeddings, text):
+    """Rate-limited embedding creation"""
+    return embeddings.embed_query(text)
 
 def preprocess_text(text):
     """Clean and prepare text for embedding"""
@@ -40,43 +48,24 @@ def embed_documents(documents):
     return results
 
 def create_vector_store(split_docs, embeddings):
-    """Create vector store with detailed progress tracking"""
+    """Create vector store without batch processing"""
     total_chunks = len(split_docs)
-    batch_size = 32
-    total_batches = (total_chunks + batch_size - 1) // batch_size
     
     print(f"\n=== Creating Vector Store ===")
     print(f"Total chunks to process: {total_chunks}")
-    print(f"Batch size: {batch_size}")
-    print(f"Total batches: {total_batches}")
-    print("\nStarting embedding creation...")
-    print("Note: This process involves API calls to Together AI for each batch.")
-    print("Expect approximately 1-2 seconds per batch due to API rate limits.")
-    
-    start_time = time.time()
-    processed_chunks = 0
+    print("\nStarting vector store creation...")
+    print("Note: This process may take several minutes.")
     
     try:
-        with tqdm(total=total_chunks, desc="Processing chunks") as pbar:
-            for i in range(0, total_chunks, batch_size):
-                batch = split_docs[i:i + batch_size]
-                # Process batch
-                if i % (batch_size * 10) == 0:  # Every 10 batches
-                    elapsed = time.time() - start_time
-                    rate = processed_chunks / elapsed if elapsed > 0 else 0
-                    eta = (total_chunks - processed_chunks) / rate if rate > 0 else 0
-                    print(f"\nProgress update:")
-                    print(f"- Processed {processed_chunks}/{total_chunks} chunks")
-                    print(f"- Current rate: {rate:.2f} chunks/second")
-                    print(f"- Estimated time remaining: {eta/60:.1f} minutes")
-                
-                processed_chunks += len(batch)
-                pbar.update(len(batch))
-                
-        # Create and return the vector store
-        vector_store = FAISS.from_documents(split_docs, embeddings)
-        return vector_store
+        # Create vector store without any extra parameters
+        vector_store = FAISS.from_documents(
+            documents=split_docs,
+            embedding=embeddings
+        )
         
+        print("\nVector store created successfully!")
+        return vector_store
+            
     except Exception as e:
         print(f"\nError during vector store creation: {str(e)}")
         return None
