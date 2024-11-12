@@ -1,7 +1,8 @@
 # Core dependencies
-python-dotenv>=1.0.0
 langchain>=0.1.0
+langchain-cli
 langchain-community>=0.0.10
+python-dotenv>=1.0.0
 python-telegram-bot>=20.7
 
 # Vector store and embeddings
@@ -9,9 +10,9 @@ chromadb>=0.4.22
 sentence-transformers>=2.2.2
 
 # Document processing
+openpyxl>=3.1.2
 PyPDF2>=3.0.0
 python-docx>=1.0.0
-openpyxl>=3.1.2
 
 # LLM APIs
 openai>=1.12.0
@@ -19,18 +20,22 @@ replicate>=0.22.0
 together>=0.2.11
 
 # Azure services
-azure-cognitiveservices-speech>=1.32.1
 azure-ai-textanalytics>=5.3.0
+azure-cognitiveservices-speech>=1.32.1
 
-# Utilities
-tqdm>=4.66.1
-pandas>=2.1.4
+# Web scraping and utilities
+beautifulsoup4
 numpy>=1.24.0
+pandas>=2.1.4
+ratelimit
+selenium
+tqdm>=4.66.1
 
-# Optional: Development tools
+# Development tools
 black>=23.12.1
 pylint>=3.0.3
 
-selenium
-beautifulsoup4
-ratelimit
+# LangChain migration
+langchain-openai
+langchain-text-splitters
+langchain-core

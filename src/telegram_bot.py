@@ -28,6 +28,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Disable httpx logging
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 def init_components() -> Tuple[Any, Any, Any]:
     """Initialize bot components"""
     try:
@@ -100,12 +103,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     Just send me your question or upload a document to get started!
     """
+    print(f"\nUser {update.message.from_user.username} started the bot")
     await update.message.reply_text(welcome_message)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming messages"""
     try:
         message = update.message.text
+        print(f"\nIncoming message from {update.message.from_user.username}: {message}")
         
         # Show typing indicator
         await update.message.chat.send_action(action="typing")
@@ -116,6 +121,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         })
         
         # Send main response
+        print(f"\nBot response: {response['answer']}")
         await update.message.reply_text(response["answer"])
         
         # Show sources if available
@@ -124,18 +130,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             for doc in response["context"]:
                 source = Path(doc.metadata.get('source', 'Unknown')).name
                 sources_text += f"• {source}\n"
+            print(f"\nSources: {sources_text}")
             await update.message.reply_text(sources_text)
             
     except Exception as e:
         logger.error(f"Error handling message: {str(e)}", exc_info=True)
-        await update.message.reply_text(
-            "I apologize, but I encountered an error processing your request. Please try again."
-        )
+        error_msg = "I apologize, but I encountered an error processing your request. Please try again."
+        print(f"\nError response: {error_msg}")
+        await update.message.reply_text(error_msg)
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle document uploads"""
     try:
         doc = update.message.document
+        print(f"\nReceived document from {update.message.from_user.username}: {doc.file_name}")
         
         # Check file type
         allowed_types = ['application/pdf', 'application/msword', 
@@ -143,13 +151,15 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         'text/plain']
         
         if doc.mime_type not in allowed_types:
-            await update.message.reply_text(
-                "❌ Sorry, I can only process PDF, DOCX, or TXT files."
-            )
+            error_msg = "❌ Sorry, I can only process PDF, DOCX, or TXT files."
+            print(f"\nRejected document: {error_msg}")
+            await update.message.reply_text(error_msg)
             return
         
         # Download file
-        await update.message.reply_text("📥 Processing your document...")
+        processing_msg = "📥 Processing your document..."
+        print(f"\nBot: {processing_msg}")
+        await update.message.reply_text(processing_msg)
         file = await context.bot.get_file(doc.file_id)
         file_path = f"temp_{doc.file_name}"
         await file.download_to_drive(file_path)
@@ -163,14 +173,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 # Add to vector store
                 vector_store.add_documents(result)
                 vector_store.save_local("faiss_index", "default_index")
-                await update.message.reply_text(
-                    f"✅ Successfully processed and indexed: {doc.file_name}\n\n"
-                    "You can now ask questions about this document!"
-                )
+                success_msg = (f"✅ Successfully processed and indexed: {doc.file_name}\n\n"
+                             "You can now ask questions about this document!")
+                print(f"\nBot: {success_msg}")
+                await update.message.reply_text(success_msg)
             else:
-                await update.message.reply_text(
-                    f"❌ Failed to process {doc.file_name}: {result}"
-                )
+                error_msg = f"❌ Failed to process {doc.file_name}: {result}"
+                print(f"\nBot: {error_msg}")
+                await update.message.reply_text(error_msg)
                 
         finally:
             # Clean up temp file
@@ -179,9 +189,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             
     except Exception as e:
         logger.error(f"Error handling document: {str(e)}", exc_info=True)
-        await update.message.reply_text(
-            "Sorry, I encountered an error processing your document. Please try again."
-        )
+        error_msg = "Sorry, I encountered an error processing your document. Please try again."
+        print(f"\nBot: {error_msg}")
+        await update.message.reply_text(error_msg)
 
 def main() -> None:
     """Start the bot"""

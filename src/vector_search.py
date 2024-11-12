@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import logging
 from langchain_together import TogetherEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -146,3 +146,20 @@ class VectorSearch:
         except Exception as e:
             logger.error(f"Error in similarity search: {str(e)}")
             return []
+
+    @staticmethod
+    def initialize() -> Tuple[Optional[FAISS], Optional['VectorSearch']]:
+        """Initialize vector store and search components"""
+        try:
+            vector_search = VectorSearch()
+            vector_store = vector_search.load_or_create_vector_store()
+            
+            if not vector_store:
+                logger.error("Failed to initialize vector store")
+                return None, None
+                
+            return vector_store, vector_search
+            
+        except Exception as e:
+            logger.error(f"Error initializing vector store: {str(e)}")
+            return None, None

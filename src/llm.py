@@ -1,12 +1,22 @@
 from together import Together
 import streamlit as st
 import os
+from langchain_openai import ChatOpenAI
 
 class LLMHandler:
     def __init__(self):
-        """Initialize Together API client"""
+        """Initialize Together API client and LangChain LLM"""
         self.client = Together()
-        self.model = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+        self.model_name = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+        
+        # Initialize LangChain LLM
+        self.llm = ChatOpenAI(
+            base_url="https://api.together.xyz/v1",
+            api_key=os.getenv("TOGETHER_API_KEY"),
+            model=self.model_name,
+            temperature=0.7,
+            max_tokens=1000
+        )
 
     def create_document_context(self, docs_and_scores):
         """Create a formatted context of available documents"""
@@ -44,10 +54,9 @@ class LLMHandler:
         if "list" in prompt.lower() and "documents" in prompt.lower():
             return self.create_document_context(docs_and_scores)
             
-        # Regular response generation
         try:
-            # Create document summary with scores
-            docs_context = "Available documents:\n"
+            # Create context from documents
+            docs_context = "Documents used:\n"
             for doc, score in docs_and_scores:
                 filename = doc.metadata.get('filename', 'N/A')
                 page = doc.metadata.get('page', 'N/A')
@@ -59,9 +68,9 @@ class LLMHandler:
                 context += f"\nFrom {doc.metadata.get('filename', 'Unknown')} (Page {doc.metadata.get('page', 'N/A')}):\n"
                 context += doc.page_content + "\n"
             
-            # Generate response
+            # Generate response using LangChain LLM
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=self.model_name,
                 messages=[
                     {"role": "system", "content": """You are a helpful assistant that answers questions based on the provided context. 
                     When discussing documents, always mention their filenames and page counts when available.

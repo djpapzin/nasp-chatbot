@@ -7,10 +7,12 @@ import logging
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader, PyPDFLoader, Docx2txtLoader, TextLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.document_loaders import DirectoryLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import DirectoryLoader
 from datetime import datetime
 from langchain.schema import Document
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
 
 logger = logging.getLogger(__name__)
 
