@@ -3,6 +3,9 @@ import logging
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.schema import Document
+from typing import List
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +68,41 @@ class UI:
                                 st.error(f'Error processing {file.name}: {result}')
                         except Exception as e:
                             st.error(f'Error processing {file.name}: {str(e)}')
+
+    @staticmethod
+    def format_sources(sources: List[Document]) -> str:
+        """Format source documents into a readable string with metadata"""
+        unique_sources = {}
+        
+        for doc in sources:
+            filename = os.path.basename(doc.metadata.get('source', 'Unknown'))
+            page = doc.metadata.get('page', 'N/A')
+            score = doc.metadata.get('score', 'N/A')
+            
+            if filename not in unique_sources:
+                unique_sources[filename] = {
+                    'pages': set([page]),
+                    'score': score if isinstance(score, float) else 'N/A',
+                    'snippets': [doc.page_content[:200] + "..."]  # First 200 chars of content
+                }
+            else:
+                unique_sources[filename]['pages'].add(page)
+                if len(unique_sources[filename]['snippets']) < 2:  # Limit to 2 snippets per source
+                    unique_sources[filename]['snippets'].append(doc.page_content[:200] + "...")
+
+        # Format into markdown
+        formatted_sources = []
+        for filename, info in unique_sources.items():
+            source_text = f"📄 **Source**: {filename}\n"
+            source_text += f"📑 **Pages**: {', '.join(map(str, sorted(info['pages'])))}\n"
+            if info['score'] != 'N/A':
+                source_text += f"🎯 **Relevance**: {info['score']:.2%}\n"
+            source_text += "\n🔍 **Relevant Excerpts**:\n"
+            for i, snippet in enumerate(info['snippets'], 1):
+                source_text += f"  {i}. {snippet}\n"
+            formatted_sources.append(source_text)
+            
+        return "\n---\n".join(formatted_sources)
 
     @staticmethod
     def show_chat_interface(vector_store, llm_handler):
@@ -130,9 +168,9 @@ Just type your question below and I'll help you find the information you need!""
                                 
                                 # Show sources if available
                                 if "context" in response:
-                                    with st.expander("View Sources"):
-                                        for doc in response["context"]:
-                                            st.markdown(f"**Source:** {doc.metadata.get('source', 'Unknown')}")
+                                    with st.expander("📚 View Sources", expanded=False):
+                                        formatted_sources = UI.format_sources(response["context"])
+                                        st.markdown(formatted_sources)
                             else:
                                 st.error("I couldn't find relevant information to answer your question.")
                                         
