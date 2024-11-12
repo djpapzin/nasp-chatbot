@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from langchain_together import TogetherEmbeddings
+from langchain_openai import AzureOpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
@@ -81,9 +81,11 @@ def main():
         load_dotenv()
         
         # Initialize embeddings
-        embeddings = TogetherEmbeddings(
-            model="togethercomputer/m2-bert-80M-8k-retrieval",
-            together_api_key=os.getenv("TOGETHER_API_KEY")
+        embeddings = AzureOpenAIEmbeddings(
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+            api_key=os.getenv("AZURE_OPENAI_API_KEY")
         )
         
         # Process PDFs

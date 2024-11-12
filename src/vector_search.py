@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import List, Optional, Tuple
 import logging
-from langchain_together import TogetherEmbeddings
+from langchain_openai import AzureOpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
@@ -18,9 +18,11 @@ class VectorSearch:
     def initialize_embeddings(self):
         """Initialize embeddings model"""
         try:
-            self.embeddings = TogetherEmbeddings(
-                model="togethercomputer/m2-bert-80M-8k-retrieval",
-                together_api_key=os.getenv("TOGETHER_API_KEY")
+            self.embeddings = AzureOpenAIEmbeddings(
+                azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+                azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"), 
+                api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+                api_key=os.getenv("AZURE_OPENAI_API_KEY")
             )
             return True
         except Exception as e:
@@ -98,7 +100,7 @@ class VectorSearch:
             return []
 
     def similarity_search_with_score(self, query: str, k: int = 3) -> List[tuple[Document, float]]:
-        """Perform similarity search with relevance scores"""
+        """Perform similarity search with scores"""
         try:
             if not self.vector_store:
                 self.vector_store = self.load_or_create_vector_store()
@@ -111,37 +113,7 @@ class VectorSearch:
                 k=k
             )
             
-            # Filter and process results
-            filtered_results = []
-            seen_content = set()
-            
-            for doc, score in results:
-                # Skip if content is too short or is metadata
-                if len(doc.page_content.strip()) < 50:
-                    continue
-                    
-                if "Published by" in doc.page_content:
-                    continue
-                    
-                # Skip near-duplicate content
-                content_hash = hash(doc.page_content[:200])
-                if content_hash in seen_content:
-                    continue
-                    
-                # Add metadata
-                doc.metadata.update({
-                    "source_file": Path(doc.metadata.get("source", "")).name,
-                    "content_length": len(doc.page_content),
-                    "word_count": len(doc.page_content.split())
-                })
-                
-                filtered_results.append((doc, score))
-                seen_content.add(content_hash)
-                
-                if len(filtered_results) >= k:
-                    break
-            
-            return filtered_results
+            return results
             
         except Exception as e:
             logger.error(f"Error in similarity search: {str(e)}")

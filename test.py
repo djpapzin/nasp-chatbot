@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from langchain_together import TogetherEmbeddings
+from langchain_openai import AzureOpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 import logging
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -104,11 +104,12 @@ def test_retriever():
     try:
         # Initialize embeddings and document processor
         load_dotenv()
-        embeddings = TogetherEmbeddings(
-            model="togethercomputer/m2-bert-80M-8k-retrieval",
-            together_api_key=os.getenv("TOGETHER_API_KEY")
+        embeddings = AzureOpenAIEmbeddings(
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+            api_key=os.getenv("AZURE_OPENAI_API_KEY")
         )
-        doc_processor = DocumentProcessor()
         
         # Load vector store
         print("Loading vector store...")
@@ -122,40 +123,35 @@ def test_retriever():
         
         # Test questions
         questions = [
-            "What is the duration and budget of the SPIL project?",
-            "Who are the main implementing partners?",
-            "How many partners are collaborating on social protection?"
+            # Universal Health Insurance questions
+            "What is the best way to finance universal health insurance in Uzbekistan?",
+            "What should Uzbekistan do to strengthen its overall social protection system?",
+            
+            # SPIL Project questions
+            "What are the objectives of the Social Protection Innovation and Learning project in Uzbekistan?",
+            "Which organisations are involved in this project?"
         ]
-        
-        # Create retriever with MMR search
-        retriever = vector_store.as_retriever(
-            search_type="mmr",
-            search_kwargs={
-                "k": 3,              # Reduce from 4 to 3 most relevant docs
-                "fetch_k": 10,       # Reduce from 20 to 10 candidates
-                "lambda_mult": 0.5   # Increase diversity (was 0.7)
-            }
-        )
         
         # Test retrieval for each question
         for question in questions:
             print(f"\nQuestion: {question}")
             try:
-                # Get documents using MMR retriever
-                docs = retriever.get_relevant_documents(question)
+                # Get documents using similarity search with scores
+                docs_and_scores = vector_store.similarity_search_with_score(
+                    query=question,
+                    k=3  # Retrieve top 3 most relevant documents
+                )
                 
-                # Process retrieved documents
-                processed_docs = doc_processor.process_documents(docs)
-                print(f"Found {len(processed_docs)} relevant documents:\n")
+                print(f"Found {len(docs_and_scores)} relevant documents:\n")
                 
-                # Print each processed document
-                for i, doc in enumerate(processed_docs, 1):
-                    print(f"Document {i}:")
+                # Print each document with its score
+                for i, (doc, score) in enumerate(docs_and_scores, 1):
+                    print(f"Document {i} (Similarity Score: {score:.4f}):")
                     print(f"Source: {doc.metadata.get('source', 'Unknown')}")
                     print(f"Chunk Index: {doc.metadata.get('chunk_index', 'N/A')}")
                     print(f"Chunk Size: {doc.metadata.get('chunk_size', 'N/A')}")
                     print(f"Content: {doc.page_content[:200]}...")
-                    print()  # Add blank line between documents
+                    print()
                     
             except Exception as e:
                 logger.error(f"Error retrieving documents: {str(e)}", exc_info=True)
