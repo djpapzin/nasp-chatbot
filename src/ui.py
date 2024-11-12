@@ -1,6 +1,13 @@
 import streamlit as st
 from typing import List
 import os
+from langchain.prompts import ChatPromptTemplate
+from langchain.chains.combine_documents.stuff import StuffDocumentsChain
+from langchain.chains.retrieval_qa.chain import RetrievalQAChain
+import logging
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 def setup_page():
     """Configure initial page settings"""
@@ -42,8 +49,8 @@ def show_how_to_use():
         - *[Prioritising universal health insurance in Uzbekistan (One pager)](https://socialprotection.org/discover/publications/prioritising-universal-health-insurance-uzbekistan-one-pager)*
         """)
 
-def setup_file_uploader() -> List:
-    """Setup file upload widget"""
+def setup_file_uploader(vector_store, doc_manager) -> List:
+    """Setup file upload widget with document processing"""
     st.sidebar.markdown("### 📄 Upload Additional Documents")
     uploaded_files = st.sidebar.file_uploader(
         "Upload PDF, DOCX, or TXT files",
@@ -52,19 +59,66 @@ def setup_file_uploader() -> List:
     )
     
     if uploaded_files:
-        st.sidebar.markdown("### 📚 Uploaded Documents")
-        for file in uploaded_files:
-            st.sidebar.markdown(f"- {file.name}")
+        st.sidebar.markdown("### 📚 Processing Documents")
+        for uploaded_file in uploaded_files:
+            with st.sidebar.status(f"Processing {uploaded_file.name}...", expanded=True) as status:
+                try:
+                    # Process document directly with uploaded file
+                    success, result = doc_manager.process_file(uploaded_file, uploaded_file.name)
+                    
+                    if success:
+                        # Add to vector store and save
+                        vector_store.add_documents(result)
+                        vector_store.save_local("faiss_index", "default_index")
+                        status.update(label=f"✅ {uploaded_file.name} processed successfully!", state="complete")
+                    else:
+                        status.update(label=f"❌ Error processing {uploaded_file.name}: {result}", state="error")
+                        
+                except Exception as e:
+                    status.update(label=f"❌ Error processing {uploaded_file.name}: {str(e)}", state="error")
+                    st.sidebar.error(f"Failed to process {uploaded_file.name}")
     
     return uploaded_files
 
-def show_chat_interface(vector_store, vector_search, llm_handler):
-    """Display chat interface"""
+def show_chat_interface(vector_store, llm_handler):
+    """Display chat interface with RAG"""
     st.markdown("### 💬 Chat")
     
     # Initialize chat history
     if "messages" not in st.session_state:
         st.session_state.messages = []
+
+    # Create retriever with similarity search
+    retriever = vector_store.as_retriever(
+        search_type="similarity",  # Changed from mmr to similarity
+        search_kwargs={
+            "k": 4  # Number of documents to retrieve
+        }
+    )
+    
+    # Create prompt template
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """You are a helpful assistant for the National Agency of Social Protection.
+        Use the following pieces of context to answer the question. 
+        If you don't know the answer, just say that you don't know.
+        Keep your answers concise and relevant.
+        
+        Context: {context}"""),
+        ("human", "{input}")  # Changed from {question} to {input}
+    ])
+    
+    # Create document chain first
+    document_chain = create_stuff_documents_chain(
+        llm=llm_handler.llm,
+        prompt=prompt,
+        document_variable_name="context"  # Specify the variable name for context
+    )
+    
+    # Create retrieval chain
+    qa_chain = create_retrieval_chain(
+        retriever=retriever,
+        combine_docs_chain=document_chain
+    )
 
     # Display chat history
     for message in st.session_state.messages:
@@ -72,20 +126,41 @@ def show_chat_interface(vector_store, vector_search, llm_handler):
             st.markdown(message["content"])
 
     # Chat input
-    if prompt := st.chat_input("Ask your question here"):
-        st.session_state.messages.append({"role": "user", "content": prompt})
+    if user_input := st.chat_input("Ask your question here"):
+        # Add user message to history
+        st.session_state.messages.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
-            st.markdown(prompt)
+            st.markdown(user_input)
 
-        # Get relevant documents
-        docs = vector_search.similarity_search(vector_store, prompt)
-        
         # Generate response
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                response = llm_handler.generate_response(prompt, docs)
-                st.markdown(response)
-                st.session_state.messages.append({"role": "assistant", "content": response})
+                try:
+                    # Get response from RAG chain
+                    response = qa_chain.invoke({
+                        "input": user_input
+                    })
+                    
+                    # Display response
+                    st.markdown(response["answer"])
+                    
+                    # Show sources if available
+                    if "context" in response:
+                        with st.expander("View Sources"):
+                            for doc in response["context"]:
+                                st.markdown(f"**Source:** {doc.metadata.get('source', 'Unknown')}")
+                                st.markdown(f"**Content:** {doc.page_content}")
+                                st.markdown("---")
+                    
+                    # Add to chat history
+                    st.session_state.messages.append({
+                        "role": "assistant", 
+                        "content": response["answer"]
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Error generating response: {str(e)}", exc_info=True)
+                    st.error("I encountered an error while generating a response. Please try again.")
 
 def load_css():
     """Load custom CSS"""

@@ -1,82 +1,148 @@
 import os
 from pathlib import Path
-import streamlit as st
+from typing import List, Optional
+import logging
 from langchain_together import TogetherEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
+
+# Configure logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class VectorSearch:
     def __init__(self):
-        self.embeddings = TogetherEmbeddings(
-            model="togethercomputer/m2-bert-80M-8k-retrieval",
-            together_api_key=os.getenv("TOGETHER_API_KEY")
-        )
-        self.index_path = Path("faiss_index")
+        self.vector_store = None
+        self.embeddings = None
         
-    @st.cache_resource
-    def load_or_create_vector_store(_self):
-        """Load the pre-built vector store or create a new one"""
+    def initialize_embeddings(self):
+        """Initialize embeddings model"""
         try:
-            # Check if index files exist
-            index_file = _self.index_path / "default_index.faiss"
-            pkl_file = _self.index_path / "default_index.pkl"
-            
-            if not (index_file.exists() and pkl_file.exists()):
-                st.warning("FAISS index files not found. Creating new vector store...")
-                # Initialize empty vector store
-                vector_store = FAISS.from_texts(
-                    ["Initial document"], 
-                    _self.embeddings
-                )
-                # Save it
-                _self.index_path.mkdir(exist_ok=True)
-                vector_store.save_local(
-                    folder_path=str(_self.index_path),
-                    index_name="default_index"
-                )
-                return vector_store
+            self.embeddings = TogetherEmbeddings(
+                model="togethercomputer/m2-bert-80M-8k-retrieval",
+                together_api_key=os.getenv("TOGETHER_API_KEY")
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize embeddings: {str(e)}")
+            return False
+
+    def load_or_create_vector_store(self) -> Optional[FAISS]:
+        """Load existing vector store or create new one"""
+        try:
+            if not self.embeddings:
+                self.initialize_embeddings()
                 
-            return FAISS.load_local(
-                folder_path=str(_self.index_path),
-                embeddings=_self.embeddings,
+            # Load existing vector store
+            self.vector_store = FAISS.load_local(
+                folder_path="faiss_index",
+                embeddings=self.embeddings,
                 index_name="default_index",
                 allow_dangerous_deserialization=True
             )
+            logger.info("Vector store loaded successfully")
+            return self.vector_store
+            
         except Exception as e:
-            st.error(f"Error loading vector store: {str(e)}")
-            st.error("Please ensure the FAISS index has been properly initialized.")
+            logger.error(f"Error loading vector store: {str(e)}")
             return None
 
-    def similarity_search_with_score(self, query, k=4):
+    def similarity_search(self, query: str, k: int = 3) -> List[Document]:
+        """Perform similarity search"""
         try:
-            # Get more initial results
-            results = self.vector_store.similarity_search_with_score(
-                query,
-                k=k*3,  # Get more candidates
-                fetch_k=20  # Increase fetch_k
+            if not self.vector_store:
+                self.vector_store = self.load_or_create_vector_store()
+                if not self.vector_store:
+                    return []
+
+            # Use FAISS similarity search
+            docs = self.vector_store.similarity_search(
+                query=query,
+                k=k
             )
             
-            # Better filtering
-            filtered_results = []
+            # Filter and process results
+            filtered_docs = []
             seen_content = set()
             
-            for doc, score in sorted(results, key=lambda x: x[1]):
-                # Skip publication metadata
-                if "Published by" in doc.page_content:
-                    continue
-                    
-                # Skip empty or very short content
+            for doc in docs:
+                # Skip if content is too short or is metadata
                 if len(doc.page_content.strip()) < 50:
                     continue
                     
-                content_hash = hash(doc.page_content[:100])
-                if content_hash not in seen_content:
-                    filtered_results.append((doc, score))
-                    seen_content.add(content_hash)
+                if "Published by" in doc.page_content:
+                    continue
                     
-                if len(filtered_results) == k:
+                # Skip near-duplicate content
+                content_hash = hash(doc.page_content[:200])
+                if content_hash in seen_content:
+                    continue
+                    
+                # Add metadata
+                doc.metadata.update({
+                    "source_file": Path(doc.metadata.get("source", "")).name,
+                    "content_length": len(doc.page_content),
+                    "word_count": len(doc.page_content.split())
+                })
+                
+                filtered_docs.append(doc)
+                seen_content.add(content_hash)
+                
+                if len(filtered_docs) >= k:
                     break
-                    
-            return filtered_results[:k]
+            
+            return filtered_docs
+            
         except Exception as e:
-            print(f"Error in similarity search: {str(e)}")
+            logger.error(f"Error in similarity search: {str(e)}")
+            return []
+
+    def similarity_search_with_score(self, query: str, k: int = 3) -> List[tuple[Document, float]]:
+        """Perform similarity search with relevance scores"""
+        try:
+            if not self.vector_store:
+                self.vector_store = self.load_or_create_vector_store()
+                if not self.vector_store:
+                    return []
+
+            # Use FAISS similarity search with scores
+            results = self.vector_store.similarity_search_with_score(
+                query=query,
+                k=k
+            )
+            
+            # Filter and process results
+            filtered_results = []
+            seen_content = set()
+            
+            for doc, score in results:
+                # Skip if content is too short or is metadata
+                if len(doc.page_content.strip()) < 50:
+                    continue
+                    
+                if "Published by" in doc.page_content:
+                    continue
+                    
+                # Skip near-duplicate content
+                content_hash = hash(doc.page_content[:200])
+                if content_hash in seen_content:
+                    continue
+                    
+                # Add metadata
+                doc.metadata.update({
+                    "source_file": Path(doc.metadata.get("source", "")).name,
+                    "content_length": len(doc.page_content),
+                    "word_count": len(doc.page_content.split())
+                })
+                
+                filtered_results.append((doc, score))
+                seen_content.add(content_hash)
+                
+                if len(filtered_results) >= k:
+                    break
+            
+            return filtered_results
+            
+        except Exception as e:
+            logger.error(f"Error in similarity search: {str(e)}")
             return []

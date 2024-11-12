@@ -9,6 +9,8 @@ import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader, PyPDFLoader, Docx2txtLoader, TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.document_loaders import DirectoryLoader
+from datetime import datetime
+from langchain.schema import Document
 
 logger = logging.getLogger(__name__)
 
@@ -67,50 +69,52 @@ class DocumentManager:
             logger.error(f"Error loading default documents: {str(e)}")
             return []
 
-    def process_file(self, file: Union[str, BinaryIO], filename: str = None) -> Tuple[bool, Union[List, str]]:
-        """
-        Process a file from either Streamlit upload or Telegram
-        
-        Args:
-            file: Either a file path (str) or file-like object
-            filename: Original filename (required for file-like objects)
-            
-        Returns:
-            Tuple[bool, Union[List, str]]: (success, result)
-                - If success is True, result is list of documents
-                - If success is False, result is error message
-        """
+    def process_file(self, file, source_name=None) -> Tuple[bool, Union[List[Document], str]]:
+        """Process a file and return a tuple of (success, result)
+        where result is either a list of Documents or an error message"""
         try:
-            # Handle file path
-            if isinstance(file, str):
-                return True, self.load_document(file)
-            
-            # Handle file-like object (Streamlit or Telegram)
-            if not filename:
-                return False, "Filename is required for uploaded files"
-                
-            file_extension = filename.split('.')[-1].lower()
-            if file_extension not in ['pdf', 'txt', 'docx']:
-                return False, "Unsupported file type. Please upload PDF, DOCX, or TXT files."
-            
-            with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as temp_file:
-                # Handle Streamlit upload
-                if hasattr(file, 'getbuffer'):
-                    temp_file.write(file.getbuffer())
-                # Handle Telegram file
-                else:
-                    temp_file.write(file.read())
-                
-                docs = self.load_document(temp_file.name)
-                os.unlink(temp_file.name)
-                
-                if not docs:
-                    return False, "No content could be extracted from the file"
-                    
-                return True, docs
-                
+            # Handle Streamlit UploadedFile
+            if hasattr(file, 'getvalue'):
+                # Save uploaded file temporarily
+                temp_path = f"temp_{source_name or file.name}"
+                with open(temp_path, "wb") as f:
+                    f.write(file.getvalue())
+                file_path = temp_path
+            else:
+                # Handle regular file path
+                file_path = file
+
+            # Process based on file type
+            if file_path.lower().endswith('.pdf'):
+                loader = PyPDFLoader(file_path)
+            elif file_path.lower().endswith('.docx'):
+                loader = Docx2txtLoader(file_path)
+            elif file_path.lower().endswith('.txt'):
+                loader = TextLoader(file_path)
+            else:
+                return False, f"Unsupported file type: {file_path}"
+
+            # Load and split documents
+            documents = loader.load()
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1000,
+                chunk_overlap=200
+            )
+            splits = text_splitter.split_documents(documents)
+
+            # Add source metadata if not present
+            for doc in splits:
+                if 'source' not in doc.metadata and source_name:
+                    doc.metadata['source'] = source_name
+
+            # Clean up temp file if it was created
+            if hasattr(file, 'getvalue') and os.path.exists(temp_path):
+                os.remove(temp_path)
+
+            return True, splits
+
         except Exception as e:
-            logger.error(f"Error processing file {filename}: {str(e)}")
+            logger.error(f"Error processing file: {str(e)}", exc_info=True)
             return False, str(e)
 
     def load_document(self, file_path: str) -> List:

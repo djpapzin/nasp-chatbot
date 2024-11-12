@@ -88,8 +88,8 @@ def main():
                 with st.spinner("Thinking..."):
                     # Get scored documents
                     docs_and_scores = vector_search.similarity_search_with_score(
-                        vector_store, 
-                        prompt
+                        prompt,
+                        k=4
                     )
                     # Generate response with scored documents
                     response = llm_handler.generate_response(prompt, docs_and_scores)
