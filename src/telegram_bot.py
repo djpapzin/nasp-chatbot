@@ -1,7 +1,7 @@
 import os
 import logging
 from pathlib import Path
-from typing import Tuple, Any
+from typing import Tuple, Any, List
 
 # Telegram imports
 from telegram import Update
@@ -106,38 +106,100 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     print(f"\nUser {update.message.from_user.username} started the bot")
     await update.message.reply_text(welcome_message)
 
+def format_sources(sources: List[Document]) -> str:
+    """Format source documents into a readable string with metadata"""
+    unique_sources = {}
+    
+    for doc in sources:
+        filename = os.path.basename(doc.metadata.get('source', 'Unknown'))
+        page = doc.metadata.get('page', 'N/A')
+        score = doc.metadata.get('score', 'N/A')
+        
+        if filename not in unique_sources:
+            unique_sources[filename] = {
+                'pages': set([page]),
+                'score': score if isinstance(score, float) else 'N/A',
+                'snippets': [doc.page_content[:200] + "..."]  # First 200 chars
+            }
+        else:
+            unique_sources[filename]['pages'].add(page)
+            if len(unique_sources[filename]['snippets']) < 2:  # Limit snippets
+                unique_sources[filename]['snippets'].append(doc.page_content[:200] + "...")
+
+    # Format into telegram-friendly markdown
+    formatted_sources = ["📚 *Sources Used:*\n"]
+    for filename, info in unique_sources.items():
+        source_text = [
+            f"📄 *Source*: `{filename}`",
+            f"📑 *Pages*: {', '.join(map(str, sorted(info['pages'])))}",
+        ]
+        if info['score'] != 'N/A':
+            source_text.append(f"🎯 *Relevance*: {info['score']:.2%}")
+        
+        source_text.append("\n🔍 *Relevant Excerpts*:")
+        for i, snippet in enumerate(info['snippets'], 1):
+            # Escape special characters for Telegram markdown
+            safe_snippet = snippet.replace('_', '\\_').replace('*', '\\*').replace('`', '\\`')
+            source_text.append(f"  {i}. {safe_snippet}")
+        
+        formatted_sources.append("\n".join(source_text))
+    
+    return "\n\n" + "\n\n---\n\n".join(formatted_sources)
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming messages"""
     try:
-        message = update.message.text
-        print(f"\nIncoming message from {update.message.from_user.username}: {message}")
+        question = update.message.text
+        chat_id = update.message.chat_id
         
-        # Show typing indicator
-        await update.message.chat.send_action(action="typing")
+        # Send typing indicator
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
         
-        # Get response from RAG chain
+        # Generate response using RAG
         response = qa_chain.invoke({
-            "input": message
+            "input": question
         })
         
-        # Send main response
-        print(f"\nBot response: {response['answer']}")
-        await update.message.reply_text(response["answer"])
-        
-        # Show sources if available
-        if "context" in response and response["context"]:
-            sources_text = "\n📚 Sources:\n"
-            for doc in response["context"]:
-                source = Path(doc.metadata.get('source', 'Unknown')).name
-                sources_text += f"• {source}\n"
-            print(f"\nSources: {sources_text}")
-            await update.message.reply_text(sources_text)
+        if response and "answer" in response:
+            # Send the main answer
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=response["answer"],
+                parse_mode="Markdown"
+            )
+            
+            # If there are sources, format and send them
+            if "context" in response and response["context"]:
+                sources_text = format_sources(response["context"])
+                # Split long messages if needed (Telegram has 4096 char limit)
+                if len(sources_text) > 4000:
+                    chunks = [sources_text[i:i+4000] for i in range(0, len(sources_text), 4000)]
+                    for chunk in chunks:
+                        await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=chunk,
+                            parse_mode="Markdown"
+                        )
+                else:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=sources_text,
+                        parse_mode="Markdown"
+                    )
+        else:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="I'm sorry, I couldn't find relevant information to answer your question.",
+                parse_mode="Markdown"
+            )
             
     except Exception as e:
         logger.error(f"Error handling message: {str(e)}", exc_info=True)
-        error_msg = "I apologize, but I encountered an error processing your request. Please try again."
-        print(f"\nError response: {error_msg}")
-        await update.message.reply_text(error_msg)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="I encountered an error while processing your request. Please try again.",
+            parse_mode="Markdown"
+        )
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle document uploads"""
