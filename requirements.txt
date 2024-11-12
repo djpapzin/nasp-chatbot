@@ -39,3 +39,5 @@ pylint>=3.0.3
 langchain-openai
 langchain-text-splitters
 langchain-core
+
+faiss-cpu

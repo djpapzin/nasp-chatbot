@@ -135,3 +135,19 @@ class VectorSearch:
         except Exception as e:
             logger.error(f"Error initializing vector store: {str(e)}")
             return None, None
+
+    def initialize_vector_store(self):
+        try:
+            embeddings = self.initialize_embeddings()
+            if embeddings is None:
+                return None
+                
+            # Initialize vector store
+            vector_store = FAISS.from_documents(
+                documents=[],  # Start with empty docs
+                embedding=embeddings
+            )
+            return vector_store
+        except Exception as e:
+            logger.error(f"Failed to initialize vector store: {str(e)}")
+            return None

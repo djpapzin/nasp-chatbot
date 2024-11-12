@@ -104,73 +104,73 @@ class UI:
     @staticmethod
     def show_chat_interface(vector_store, llm_handler):
         """Display chat interface with RAG"""
-        # Create the RAG chain
-        retriever = vector_store.as_retriever()
-        question_answer_chain = create_stuff_documents_chain(
-            llm_handler.llm, 
-            QA_PROMPT
-        )
-        qa_chain = create_retrieval_chain(retriever, question_answer_chain)
-
-        # Create container for chat interface
-        chat_container = st.container()
+        if vector_store is None:
+            st.error("Vector store not initialized. Please check your credentials and try again.")
+            return
         
-        with chat_container:
-            # Initialize chat history if it doesn't exist
-            if "messages" not in st.session_state:
-                st.session_state.messages = []
-                # Add initial greeting
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": """👋 Hi! I'm your NASP Chatbot assistant.
+        # Create the RAG chain
+        try:
+            retriever = vector_store.as_retriever()
+            question_answer_chain = create_stuff_documents_chain(
+                llm_handler.llm,
+                QA_PROMPT
+            )
+            qa_chain = create_retrieval_chain(retriever, question_answer_chain)
 
-I can help you find information about:
-- Social protection programs and policies
-- Project evaluations and reports
-- Research findings and statistics
-- Implementation details and outcomes
-
-Just type your question below and I'll help you find the information you need!"""
-                })
+            # Create container for chat interface
+            chat_container = st.container()
             
-            # Display all messages in the chat history
-            for message in st.session_state.messages:
-                with st.chat_message(message["role"]):
-                    st.write(message["content"])
-            
-            # Chat input
-            if prompt := st.chat_input("What would you like to know?"):
-                # Add user message to chat history
-                st.session_state.messages.append({"role": "user", "content": prompt})
+            with chat_container:
+                # Initialize chat history if it doesn't exist
+                if "messages" not in st.session_state:
+                    st.session_state.messages = []
+                    # Add initial greeting with simpler message
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": "Hello. Please enter your question in the chat box to get started."
+                    })
                 
-                # Display user message
-                with st.chat_message("user"):
-                    st.write(prompt)
+                # Display all messages in the chat history
+                for message in st.session_state.messages:
+                    with st.chat_message(message["role"]):
+                        st.write(message["content"])
                 
-                # Generate and display assistant response
-                with st.chat_message("assistant"):
-                    with st.spinner("Thinking..."):
-                        try:
-                            response = qa_chain.invoke({
-                                "input": prompt
-                            })
-                            
-                            if response and "answer" in response:
-                                st.write(response["answer"])
-                                # Add assistant response to chat history
-                                st.session_state.messages.append({
-                                    "role": "assistant", 
-                                    "content": response["answer"]
+                # Chat input
+                if prompt := st.chat_input("What would you like to know?"):
+                    # Add user message to chat history
+                    st.session_state.messages.append({"role": "user", "content": prompt})
+                    
+                    # Display user message
+                    with st.chat_message("user"):
+                        st.write(prompt)
+                    
+                    # Generate and display assistant response
+                    with st.chat_message("assistant"):
+                        with st.spinner("Thinking..."):
+                            try:
+                                response = qa_chain.invoke({
+                                    "input": prompt
                                 })
                                 
-                                # Show sources if available
-                                if "context" in response:
-                                    with st.expander("📚 View Sources", expanded=False):
-                                        formatted_sources = UI.format_sources(response["context"])
-                                        st.markdown(formatted_sources)
-                            else:
-                                st.error("I couldn't find relevant information to answer your question.")
-                                        
-                        except Exception as e:
-                            st.error("I encountered an error while generating a response. Please try again.")
-                            logger.error(f"Error generating response: {str(e)}", exc_info=True)
+                                if response and "answer" in response:
+                                    st.write(response["answer"])
+                                    # Add assistant response to chat history
+                                    st.session_state.messages.append({
+                                        "role": "assistant", 
+                                        "content": response["answer"]
+                                    })
+                                    
+                                    # Show sources if available
+                                    if "context" in response:
+                                        with st.expander("📚 View Sources", expanded=False):
+                                            formatted_sources = UI.format_sources(response["context"])
+                                            st.markdown(formatted_sources)
+                                else:
+                                    st.error("I couldn't find relevant information to answer your question.")
+                                            
+                            except Exception as e:
+                                st.error("I encountered an error while generating a response. Please try again.")
+                                logger.error(f"Error generating response: {str(e)}", exc_info=True)
+        except Exception as e:
+            st.error(f"Error initializing chat interface: {str(e)}")
+            return
