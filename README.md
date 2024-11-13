@@ -9,6 +9,16 @@ A RAG-powered chatbot for the National Agency of Social Protection, built with L
 - 💬 Multi-Platform: Available via Streamlit UI and Telegram bot
 - 🌐 Pre-loaded Documents: Comes with key social protection documents
 - 🔄 Real-time Processing: Dynamic document updates and vector store management
+- 🌍 Translation Support: Planned support for multiple languages including Uzbek
+
+## Tech Stack
+
+- **LLM**: Mixtral-8x7B-Instruct-v0.1 via Together AI
+- **Embeddings**: m2-bert-80M-8k-retrieval via Together AI
+- **Vector Store**: FAISS (Facebook AI Similarity Search)
+- **Framework**: LangChain
+- **UI**: Streamlit and Telegram Bot
+- **Document Processing**: Support for PDF, DOCX, and TXT files
 
 ## Prerequisites
 
@@ -21,7 +31,7 @@ A RAG-powered chatbot for the National Agency of Social Protection, built with L
 
 1. Clone the repository:
 ```bash
-git clone [your-repo-url]
+git clone https://github.com/djpapzin/kwantu-rag
 cd kwantu-rag
 ```
 

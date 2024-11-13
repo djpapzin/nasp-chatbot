@@ -1,7 +1,8 @@
 import os
 import logging
 from pathlib import Path
-from typing import Tuple, Any, List
+from typing import Tuple, Any, List, Dict, Set
+from datetime import datetime
 
 # Telegram imports
 from telegram import Update
@@ -15,6 +16,7 @@ from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from dotenv import load_dotenv
 from langchain.chat_models import ChatOpenAI
+from langchain.document import Document
 
 # Local imports
 from document_manager import DocumentManager
@@ -30,6 +32,103 @@ logger = logging.getLogger(__name__)
 
 # Disable httpx logging
 logging.getLogger("httpx").setLevel(logging.WARNING)
+
+# Session storage - using a simple dict for in-memory storage
+user_sessions: Dict[int, Set[str]] = {}  # user_id -> set of uploaded document names
+
+class TelegramBot:
+    def __init__(self, token: str):
+        self.application = Application.builder().token(token).build()
+        self._setup_handlers()
+        
+    def _setup_handlers(self):
+        """Set up command and message handlers"""
+        # Command handlers
+        self.application.add_handler(CommandHandler("start", self.start_command))
+        self.application.add_handler(CommandHandler("reset", self.reset_command))
+        self.application.add_handler(CommandHandler("status", self.status_command))
+        
+        # Document handler
+        self.application.add_handler(MessageHandler(filters.Document.ALL, self.handle_document))
+
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /start command - initialize or reset session"""
+        user_id = update.effective_user.id
+        user_sessions[user_id] = set()  # Initialize empty session
+        
+        welcome_message = (
+            "👋 Welcome to the NASP Document Assistant!\n\n"
+            "I can help you with questions about social protection documents.\n\n"
+            "Commands:\n"
+            "📤 Send me documents to analyze\n"
+            "/status - See current session info\n"
+            "/reset - Start a new session\n"
+            "/start - Show this message\n\n"
+            "Currently using default documents. Upload your own to add to the knowledge base."
+        )
+        await update.message.reply_text(welcome_message)
+
+    async def reset_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /reset command - clear session and return to defaults"""
+        user_id = update.effective_user.id
+        old_docs = len(user_sessions.get(user_id, set()))
+        user_sessions[user_id] = set()
+        
+        reset_message = (
+            "🔄 Session reset complete!\n\n"
+            f"Removed {old_docs} uploaded documents.\n"
+            "Returned to default documents only.\n"
+            "You can start uploading new documents or ask questions."
+        )
+        await update.message.reply_text(reset_message)
+
+    async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /status command - show current session info"""
+        user_id = update.effective_user.id
+        uploaded_docs = user_sessions.get(user_id, set())
+        
+        status_message = [
+            "📊 Current Session Status:",
+            f"📚 Uploaded Documents: {len(uploaded_docs)}",
+            "\nCustom Documents:" if uploaded_docs else "\nNo custom documents uploaded."
+        ]
+        
+        # List uploaded documents if any
+        for doc in uploaded_docs:
+            status_message.append(f"📄 {doc}")
+            
+        status_message.extend([
+            "\n🔍 Using:",
+            "- Custom documents (if uploaded)",
+            "- Default NASP documents",
+            "\nUse /reset to clear your session and remove uploaded documents."
+        ])
+        
+        await update.message.reply_text("\n".join(status_message))
+
+    async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle document uploads"""
+        user_id = update.effective_user.id
+        document = update.message.document
+        
+        # Initialize user session if doesn't exist
+        if user_id not in user_sessions:
+            user_sessions[user_id] = set()
+        
+        # Add document to session
+        user_sessions[user_id].add(document.file_name)
+        
+        response = (
+            f"📄 Received document: {document.file_name}\n"
+            f"Current session has {len(user_sessions[user_id])} documents.\n"
+            "Processing... I'll use this document for answering your questions.\n\n"
+            "Use /status to see all uploaded documents or /reset to start fresh."
+        )
+        await update.message.reply_text(response)
+
+    def run(self):
+        """Run the bot"""
+        self.application.run_polling()
 
 def init_components() -> Tuple[Any, Any, Any]:
     """Initialize bot components"""
@@ -90,21 +189,6 @@ def init_components() -> Tuple[Any, Any, Any]:
     except Exception as e:
         logger.error(f"Error during initialization: {str(e)}", exc_info=True)
         raise
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send welcome message when /start is issued"""
-    welcome_message = """
-    👋 Welcome to the NASP Chatbot!
-    
-    I can help you find information about social protection programs and policies.
-    You can:
-    1. Ask me questions about social protection documents
-    2. Upload PDF, DOCX, or TXT files for me to analyze
-    
-    Just send me your question or upload a document to get started!
-    """
-    print(f"\nUser {update.message.from_user.username} started the bot")
-    await update.message.reply_text(welcome_message)
 
 def format_sources(sources: List[Document]) -> str:
     """Format source documents into a readable string with metadata"""
@@ -200,60 +284,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             text="I encountered an error while processing your request. Please try again.",
             parse_mode="Markdown"
         )
-
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle document uploads"""
-    try:
-        doc = update.message.document
-        print(f"\nReceived document from {update.message.from_user.username}: {doc.file_name}")
-        
-        # Check file type
-        allowed_types = ['application/pdf', 'application/msword', 
-                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                        'text/plain']
-        
-        if doc.mime_type not in allowed_types:
-            error_msg = "❌ Sorry, I can only process PDF, DOCX, or TXT files."
-            print(f"\nRejected document: {error_msg}")
-            await update.message.reply_text(error_msg)
-            return
-        
-        # Download file
-        processing_msg = "📥 Processing your document..."
-        print(f"\nBot: {processing_msg}")
-        await update.message.reply_text(processing_msg)
-        file = await context.bot.get_file(doc.file_id)
-        file_path = f"temp_{doc.file_name}"
-        await file.download_to_drive(file_path)
-        
-        try:
-            # Process document using DocumentManager
-            doc_manager = DocumentManager()
-            success, result = doc_manager.process_file(file_path, doc.file_name)
-            
-            if success:
-                # Add to vector store
-                vector_store.add_documents(result)
-                vector_store.save_local("faiss_index", "default_index")
-                success_msg = (f"✅ Successfully processed and indexed: {doc.file_name}\n\n"
-                             "You can now ask questions about this document!")
-                print(f"\nBot: {success_msg}")
-                await update.message.reply_text(success_msg)
-            else:
-                error_msg = f"❌ Failed to process {doc.file_name}: {result}"
-                print(f"\nBot: {error_msg}")
-                await update.message.reply_text(error_msg)
-                
-        finally:
-            # Clean up temp file
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            
-    except Exception as e:
-        logger.error(f"Error handling document: {str(e)}", exc_info=True)
-        error_msg = "Sorry, I encountered an error processing your document. Please try again."
-        print(f"\nBot: {error_msg}")
-        await update.message.reply_text(error_msg)
 
 def main() -> None:
     """Start the bot"""
