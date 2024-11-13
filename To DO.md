@@ -4,12 +4,12 @@
   - [x] Research server requirements (Google Doc), set up over the weekend, relevant installation.
   - [x] Determine storage requirements for installing FAISS vector storage on the CentOS monitoring server with low specs.
   - [x] Use default files for users if they don't have files to upload.
-- [ ] Telegram Installation:
-  - [ ] Enable document upload.
-  - [ ] Ensure the same welcome message as the Streamlit app is displayed.
+- [x] Telegram Installation:
+  - [x] Enable document upload.
+  - [x] Ensure the same welcome message as the Streamlit app is displayed.
   - [ ] Decide where to deploy the bot.
 - [ ] Translation:
-  - [ ] Use Llama 3.1 and Azure Speech Services for translation, especially Uzbek.
+  - [ ] Use Llama 3.1 and Azure Speech Services for translation, specifically Uzbek.
   - [ ] Create a prompt template to assist with correct translation.
   - [ ] Generate suggested questions for documents.
 
@@ -20,6 +20,5 @@ Current Stack:
   - [ ] Has file upload functionality.
   - [ ] Has default documents loaded
 - [ ] Uses FAISS as a vector store running locally. 
-- [ ] Embeddings via TogetherAI API.
-  - [ ] togethercomputer/m2-bert-80M-8k-retrieval
+- [ ] uses openai emebeddings via Azure API
 - [ ] Has Streamlit UI.

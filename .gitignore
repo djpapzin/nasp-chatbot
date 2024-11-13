@@ -12,3 +12,6 @@ __pycache__/
 
 # Logs
 bot.log
+
+# Dev container
+/.devcontainer

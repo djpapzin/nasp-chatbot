@@ -6,6 +6,9 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.schema import Document
 from typing import List
 import os
+from src.document_manager import WebDocumentManager
+
+
 
 logger = logging.getLogger(__name__)
 

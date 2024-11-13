@@ -16,7 +16,8 @@ from langchain_community.vectorstores import FAISS
 
 logger = logging.getLogger(__name__)
 
-class DocumentManager:
+# Create a base document manager without Streamlit dependencies
+class BaseDocumentManager:
     DEFAULT_DOCS = [
         {
             "name": "Exploring Pathways to Decent Employment",
@@ -51,7 +52,7 @@ class DocumentManager:
         """Load and process default documents"""
         try:
             documents = []
-            for doc in DocumentManager.DEFAULT_DOCS:
+            for doc in BaseDocumentManager.DEFAULT_DOCS:
                 logger.info(f"Processing default document: {doc['name']}")
                 response = requests.get(doc['url'])
                 response.raise_for_status()
@@ -138,3 +139,16 @@ class DocumentManager:
 
     def load_default_documents(self):
         return []
+
+# Create a UI-specific document manager that inherits from base
+class WebDocumentManager(BaseDocumentManager):
+    def __init__(self):
+        super().__init__()
+        import streamlit as st  # Only import streamlit here
+        self.st = st
+        # ... UI specific functionality ...
+
+# Create a Telegram-specific document manager
+class TelegramDocumentManager(BaseDocumentManager):
+    # ... telegram specific functionality ...
+    pass
