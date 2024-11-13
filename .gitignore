@@ -1,19 +1,14 @@
 # Environment and virtual environments
 .env
 /.venv
+/keys
 
-
-# Documentation
-docs/*
-!docs/.gitkeep
+# IDE and editor files
+.cursorignore
 
 # Python
 __pycache__/
 *.cfg
 
-# IDE and editor files
-.cursorignore
-
-/keys
-
+# Logs
 bot.log
