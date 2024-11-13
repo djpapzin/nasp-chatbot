@@ -10,10 +10,31 @@ from langchain_core.documents import Document
 import re
 from typing import List
 import logging
+import time
+from datetime import datetime
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.document_loaders import TextLoader
+from ratelimit import limits, sleep_and_retry
 
 # Configure logger
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+class Timer:
+    def __init__(self, name):
+        self.name = name
+        self.start_time = None
+        
+    def __enter__(self):
+        self.start_time = time.time()
+        print(f"\n⏱️ Starting {self.name}...")
+        return self
+        
+    def __exit__(self, *args):
+        elapsed_time = time.time() - self.start_time
+        print(f"✓ Completed {self.name} in {elapsed_time:.2f} seconds")
 
 class DocumentProcessor:
     def __init__(self):
@@ -73,51 +94,66 @@ def create_vector_store(documents: List[Document], embeddings) -> FAISS:
     )
     return vector_store
 
+# Set up rate limiting for OpenAI API calls
+@limits(calls=10, period=60)  # Adjust these values as needed
+@sleep_and_retry
+def embed_documents(embeddings, documents):
+    return embeddings.embed_documents(documents)
+
 def main():
-    print("=== Starting Vector Store Setup ===")
+    print(f"=== Starting Vector Store Setup at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
     
-    try:
-        # Load environment variables
-        load_dotenv()
-        
-        # Initialize embeddings
-        embeddings = AzureOpenAIEmbeddings(
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-            azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-            openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-            api_key=os.getenv("AZURE_OPENAI_API_KEY")
-        )
-        
-        # Process PDFs
-        docs_path = Path("src/default_docs")
-        documents = []
-        
-        for pdf_file in docs_path.glob("*.pdf"):
-            print(f"Processing: {pdf_file.name}")
-            loader = PyPDFLoader(str(pdf_file))
-            documents.extend(loader.load())
-        
-        if not documents:
-            print("No documents found!")
-            return
+    with Timer("Total Processing"):
+        try:
+            # Load environment variables
+            load_dotenv()
             
-        # Process documents
-        processor = DocumentProcessor()
-        processed_docs = processor.process_documents(documents)
-        print(f"Created {len(processed_docs)} chunks")
-        
-        # Create vector store
-        vector_store = create_vector_store(processed_docs, embeddings)
-        
-        # Save vector store
-        vector_store.save_local(
-            folder_path="faiss_index",
-            index_name="default_index"
-        )
-        print("Vector store saved successfully")
-        
-    except Exception as e:
-        print(f"Error: {str(e)}")
+            with Timer("Embedding Model Initialization"):
+                embeddings = AzureOpenAIEmbeddings(
+                    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+                    azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+                    openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+                    api_key=os.getenv("AZURE_OPENAI_API_KEY")
+                )
+            
+            # Process PDFs
+            docs_path = Path("src/default_docs")
+            documents = []
+            
+            with Timer("PDF Loading"):
+                for pdf_file in docs_path.glob("*.pdf"):
+                    print(f"Processing: {pdf_file.name}")
+                    loader = PyPDFLoader(str(pdf_file))
+                    documents.extend(loader.load())
+            
+            if not documents:
+                print("No documents found!")
+                return
+                
+            # Process documents
+            with Timer("Document Chunking"):
+                processor = DocumentProcessor()
+                processed_docs = processor.process_documents(documents)
+                print(f"Created {len(processed_docs)} chunks")
+            
+            # Create vector store
+            with Timer("Vector Store Creation & Embedding"):
+                vector_store = create_vector_store(processed_docs, embeddings)
+            
+            # Save vector store
+            with Timer("Vector Store Saving"):
+                vector_store.save_local(
+                    folder_path="faiss_index",
+                    index_name="default_index"
+                )
+            
+            print("\n=== Processing Summary ===")
+            print(f"• Documents processed: {len(documents)}")
+            print(f"• Chunks created: {len(processed_docs)}")
+            print(f"• Average chunk size: {sum(len(d.page_content) for d in processed_docs) / len(processed_docs):.0f} characters")
+            
+        except Exception as e:
+            print(f"Error: {str(e)}")
 
 if __name__ == "__main__":
     main()
