@@ -35,11 +35,11 @@ class VectorSearch:
             if not self.embeddings:
                 self.initialize_embeddings()
                 
-            # Load existing vector store
+            # Load existing vector store with safe deserialization enabled
             self.vector_store = FAISS.load_local(
                 folder_path="faiss_index",
                 embeddings=self.embeddings,
-                index_name="default_index",
+                index_name="index",
                 allow_dangerous_deserialization=True
             )
             logger.info("Vector store loaded successfully")
@@ -81,12 +81,7 @@ class VectorSearch:
                     continue
                     
                 # Add metadata
-                doc.metadata.update({
-                    "source_file": Path(doc.metadata.get("source", "")).name,
-                    "content_length": len(doc.page_content),
-                    "word_count": len(doc.page_content.split())
-                })
-                
+                doc.metadata["source_file"] = Path(doc.metadata.get("source", "")).name
                 filtered_docs.append(doc)
                 seen_content.add(content_hash)
                 

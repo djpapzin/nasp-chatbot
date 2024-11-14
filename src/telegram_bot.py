@@ -4,11 +4,13 @@ from pathlib import Path
 from typing import Tuple, Any, List, Dict, Set
 from datetime import datetime
 import re
+import asyncio
 
 # Telegram imports
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import BotCommand
 
 # LangChain imports
 from langchain_core.prompts import ChatPromptTemplate
@@ -25,6 +27,7 @@ from langchain_openai import AzureOpenAIEmbeddings
 from document_manager import TelegramDocumentManager
 from vector_search import VectorSearch
 from config import PROMPT_CONFIG, CHATBOT_CONFIG
+from src.translator import Translator
 
 # Configure logging
 logging.basicConfig(
@@ -105,87 +108,109 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle document messages."""
-    try:
-        # Get basic info about the document
-        doc = update.message.document
-        file_name = doc.file_name
-        
-        await update.message.reply_text(
-            f"I received your document: {file_name}\n"
-            "However, document processing is currently not implemented in the Telegram interface. "
-            "Please use the web interface to upload and process documents."
-        )
-    except Exception as e:
-        logger.error(f"Error handling document: {str(e)}")
-        await update.message.reply_text(
-            "Sorry, I encountered an error while processing your document. "
-            "Please try again later or contact support if the issue persists."
-        )
+    """Handle document uploads"""
+    await update.message.reply_text(
+        "Document uploads are not supported yet. Please check back later."
+    )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send welcome message when /start command is issued."""
-    welcome_message = (
-        "*NASP Chatbot*\n\n"  # Title in bold
-        "Welcome\\! This is a prototype chatbot for the National Agency of Social Protection\\. "
-        "You can use it to ask questions about a library of reports, evaluations, research and other documents\\.\n\n"
-        "Hello\\. Please enter your question in the chat box to get started\\."
+    # Default to English initially
+    user_language = context.user_data.get('language', 'en')
+    
+    # Initialize translator
+    translator = Translator()
+    
+    # Get and translate welcome message
+    welcome_message = CHATBOT_CONFIG['welcome_message']
+    translated_welcome = translator.translate(welcome_message, user_language)
+    
+    # Escape special characters for Markdown
+    escaped_message = escape_markdown(translated_welcome)
+    
+    # Add language selection instructions
+    language_instructions = translator.translate(
+        "Use /language to change the language (EN/RU/UZ)",
+        user_language
     )
     
+    full_message = f"{escaped_message}\n\n{escape_markdown(language_instructions)}"
+    
     await update.message.reply_text(
-        welcome_message,
+        full_message,
         parse_mode=ParseMode.MARKDOWN_V2
     )
 
+async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle language change command"""
+    translator = Translator()
+    
+    # Create keyboard with language options
+    keyboard = [
+        ["English 🇬🇧", "Русский 🇷🇺", "O'zbek 🇺🇿"]
+    ]
+    
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+    
+    await update.message.reply_text(
+        "Please select your language:\nПожалуйста, выберите язык:\nTilni tanlang:",
+        reply_markup=reply_markup
+    )
+
+async def handle_language_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle language selection from keyboard"""
+    text = update.message.text
+    
+    language_map = {
+        "English 🇬🇧": "en",
+        "Русский 🇷🇺": "ru",
+        "O'zbek 🇺🇿": "uz"
+    }
+    
+    if text in language_map:
+        selected_language = language_map[text]
+        context.user_data['language'] = selected_language
+        
+        translator = Translator()
+        confirmation = translator.translate(
+            "Language has been updated. You can now continue chatting.",
+            selected_language
+        )
+        
+        await update.message.reply_text(
+            escape_markdown(confirmation),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=ReplyKeyboardRemove()
+        )
+
 def init_components():
     """Initialize LLM, vector store, and QA chain components"""
-    logger.info("=== Starting Bot Initialization ===")
-    
     try:
-        # Initialize embeddings with Azure OpenAI
-        embeddings = AzureOpenAIEmbeddings(
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-            azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-            openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-            api_key=os.getenv("AZURE_OPENAI_API_KEY")
-        )
-        logger.info("Embeddings initialized successfully")
-
-        # Initialize LLM
-        llm = ChatOpenAI(
-            base_url="https://api.together.xyz/v1",
-            api_key=os.getenv("TOGETHER_API_KEY"),
-            model="mistralai/Mixtral-8x7B-Instruct-v0.1",
-            temperature=0.7,
-            max_tokens=1000
-        )
-        logger.info("LLM initialized successfully")
-
-        # Initialize VectorSearch
+        # Initialize embeddings
         vector_search = VectorSearch()
-        vector_search.embeddings = embeddings
-        vector_search.vector_store = FAISS.load_local(
+        vector_search.initialize_embeddings()
+        
+        # Load the same vector store as Streamlit
+        vector_store = FAISS.load_local(
             folder_path="faiss_index",
-            embeddings=embeddings,
-            index_name="default_index",
-            allow_dangerous_deserialization=True
+            embeddings=vector_search.embeddings,
+            index_name="index"
         )
         logger.info("Vector store loaded successfully")
-
-        # Create QA chain
-        qa_chain = create_qa_chain(llm, vector_search)
         
-        logger.info("=== Bot Initialization Complete ===")
-        return vector_search.vector_store, vector_search, qa_chain
+        # Create QA chain
+        qa_chain = create_qa_chain(llm, vector_store)
+        
+        return vector_store, vector_search, qa_chain
         
     except Exception as e:
         logger.error(f"Error initializing components: {str(e)}")
         raise
 
-def create_qa_chain(llm, vector_search):
+def create_qa_chain(llm, vector_store):
     """Create the question-answering chain"""
     # Create retrieval chain
-    retriever = vector_search.vector_store.as_retriever(
+    retriever = vector_store.as_retriever(
         search_type="similarity",
         search_kwargs={"k": 3}
     )
@@ -214,16 +239,123 @@ SYSTEM_PROMPT = """Your task is to be an expert researcher that can answer quest
 Context: {context}
 """
 
+async def set_commands(application: Application) -> None:
+    """Set bot commands in Telegram UI."""
+    commands = [
+        ("start", "Start the bot and get welcome message"),
+        ("help", "Show help information"),
+        ("about", "Learn more about NASP Chatbot"),
+        ("language", "Change language (EN/RU/UZ)"),
+        ("clear_chat", "Clear chat history"),
+    ]
+    
+    await application.bot.set_my_commands(
+        [BotCommand(command, description) for command, description in commands]
+    )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send help message when /help command is issued."""
+    help_text = (
+        "*Available Commands:*\n\n"
+        "/start \\- Start the bot and get welcome message\n"
+        "/help \\- Show this help message\n"
+        "/about \\- Learn more about NASP Chatbot\n"
+        "/language \\- Change language \\(EN/RU/UZ\\)\n"
+        "/clear\\_chat \\- Clear chat history\n\n"
+        "You can also simply type your question and I will try to answer it\\!"
+    )
+    
+    await update.message.reply_text(
+        help_text,
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send information about the bot when /about command is issued."""
+    about_text = (
+        "*About NASP Chatbot*\n\n"
+        "I am a chatbot designed to help you find information about social protection in Uzbekistan\\. "
+        "I can answer questions based on various reports, evaluations, and research documents\\.\n\n"
+        "I use AI technology to understand your questions and provide relevant information from official sources\\."
+    )
+    
+    await update.message.reply_text(
+        about_text,
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+async def clear_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Clear chat history for the current user."""
+    user_id = update.effective_user.id
+    
+    # Clear user's chat history if it exists
+    if user_id in user_sessions:
+        user_sessions[user_id] = set()
+        await update.message.reply_text(
+            escape_markdown("Chat history has been cleared\\!"),
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+    else:
+        await update.message.reply_text(
+            escape_markdown("No chat history to clear\\!"),
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+
+async def main() -> None:
+    """Main function to run the bot."""
+    try:
+        # Initialize components
+        global vector_store, vector_search, qa_chain
+        vector_store, vector_search, qa_chain = init_components()
+
+        # Create application and add handlers
+        application = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
+        
+        # Add command handlers
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("about", about_command))
+        application.add_handler(CommandHandler("clear_chat", clear_chat))
+        application.add_handler(CommandHandler("language", language_command))
+        application.add_handler(MessageHandler(
+            filters.Regex("^(English 🇬🇧|Русский 🇷🇺|O'zbek 🇺🇿)$"), 
+            handle_language_selection
+        ))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+
+        # Set up commands in Telegram UI
+        await set_commands(application)
+
+        # Initialize the application
+        await application.initialize()
+
+        # Start polling in the current event loop
+        logger.info("Starting bot...")
+        await application.updater.start_polling()
+        await application.start()
+
+        # Manually idle the bot
+        while True:
+            await asyncio.sleep(1)  # Check every second for shutdown
+
+    except Exception as e:
+        logger.error(f"Error in main: {str(e)}", exc_info=True)
+        raise
+
 if __name__ == "__main__":
-    # Initialize components
-    global vector_store, vector_search, qa_chain  # If these are needed globally
-    vector_store, vector_search, qa_chain = init_components()
+    try:
+        if os.name == 'nt':
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    # Create application and add handlers
-    application = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+        loop = asyncio.get_event_loop()
+        try:
+            loop.run_until_complete(main())  # Run the main function
+        except KeyboardInterrupt:
+            logger.info("Bot stopped by user")
+        finally:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.close()
 
-    # Start the bot.  NO asyncio.run() here!
-    application.run_polling()
+    except Exception as e:
+        logger.error(f"Bot stopped due to error: {str(e)}", exc_info=True)

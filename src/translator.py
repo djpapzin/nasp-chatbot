@@ -1,7 +1,7 @@
 from typing import Optional
 import os
-from azure.ai.translation.text import TextTranslationClient, TranslatorCredential
-from azure.ai.translation.text.models import InputTextItem
+from azure.ai.translation.text import TextTranslationClient
+from azure.core.credentials import AzureKeyCredential
 import logging
 from src.config import LANGUAGE_CONFIG
 
@@ -11,19 +11,14 @@ class Translator:
     def __init__(self):
         """Initialize the translator with Azure credentials"""
         try:
-            self.key = os.getenv("AZURE_TRANSLATOR_KEY")
-            self.endpoint = os.getenv("AZURE_TRANSLATOR_ENDPOINT")
-            self.region = os.getenv("AZURE_TRANSLATOR_REGION")
-            
-            if not all([self.key, self.endpoint, self.region]):
+            key = os.getenv("AZURE_TRANSLATOR_KEY")
+            endpoint = os.getenv("AZURE_TRANSLATOR_ENDPOINT")
+
+            if not all([key, endpoint]):
                 raise ValueError("Missing required Azure Translator credentials")
-            
-            self.credential = TranslatorCredential(self.key, self.region)
-            self.client = TextTranslationClient(
-                endpoint=self.endpoint,
-                credential=self.credential
-            )
-            
+
+            self.client = TextTranslationClient(endpoint, AzureKeyCredential(key))
+
         except Exception as e:
             logger.error(f"Failed to initialize translator: {str(e)}")
             raise

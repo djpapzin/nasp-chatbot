@@ -23,6 +23,7 @@ from tenacity import (
     wait_exponential,
     retry_if_exception_type
 )
+from src.vector_search import VectorSearch
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -54,41 +55,82 @@ class DocumentProcessor:
     
     def process_documents(self, documents: List[Document]) -> List[Document]:
         processed_docs = []
+        doc_id = 0  # Track unique document IDs
         
+        # Group documents by source file
+        docs_by_source = {}
         for doc in documents:
-            # Clean the text
-            clean_content = self._preprocess_text(doc.page_content)
+            source = doc.metadata.get('source', '')
+            if source not in docs_by_source:
+                docs_by_source[source] = []
+            docs_by_source[source].append(doc)
+        
+        # Process each source file's documents
+        for source, docs in docs_by_source.items():
+            doc_id += 1
+            file_name = Path(source).name
             
+            # Extract document metadata
+            doc_metadata = {
+                "document_id": doc_id,
+                "title": self._clean_filename(file_name),
+                "source": source,
+                "file_name": file_name,
+                "total_pages": len(docs),
+                "creation_date": datetime.fromtimestamp(Path(source).stat().st_mtime).strftime("%Y-%m-%d"),
+            }
+            
+            # Process each page in the document
+            all_text = []
+            for page_num, doc in enumerate(docs, 1):
+                # Clean the text
+                clean_content = self._preprocess_text(doc.page_content)
+                all_text.append(clean_content)
+                
             # Split into chunks
             splits = self.text_splitter.create_documents(
-                texts=[clean_content],
-                metadatas=[doc.metadata]
+                texts=all_text,
+                metadatas=[{
+                    **doc_metadata,
+                    "page_number": page_num,
+                    "total_pages": len(docs)
+                } for page_num in range(1, len(docs) + 1)]
             )
             
             # Process each chunk
-            for i, split in enumerate(splits):
-                metadata = {
+            for chunk_idx, split in enumerate(splits):
+                chunk_metadata = {
                     **split.metadata,
-                    "chunk_index": i,
+                    "chunk_index": chunk_idx,
                     "chunk_size": len(split.page_content),
-                    "source_file": Path(split.metadata.get("source", "")).name
+                    "total_chunks": len(splits),
                 }
                 
                 processed_docs.append(
                     Document(
                         page_content=split.page_content,
-                        metadata=metadata
+                        metadata=chunk_metadata
                     )
                 )
+            
+            logger.info(f"Processed document {doc_id}: {file_name} - {len(splits)} chunks created")
         
         return processed_docs
+    
+    def _clean_filename(self, filename: str) -> str:
+        """Convert filename to readable title"""
+        # Remove extension
+        title = Path(filename).stem
+        # Replace underscores and hyphens with spaces
+        title = title.replace('_', ' ').replace('-', ' ')
+        return title
     
     def _preprocess_text(self, text: str) -> str:
         """Clean text while preserving semantic structure"""
         # Remove redundant whitespace
         text = re.sub(r'\s+', ' ', text)
         # Normalize line endings
-        text = re.sub(r'\n\s*\n', '\n\n', text)
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
         return text.strip()
 
 def batch_documents(documents: List[Document], batch_size: int = 50) -> Iterator[List[Document]]:
@@ -163,13 +205,16 @@ def main():
             
             # Create vector store with batching and retry logic
             with Timer("Vector Store Creation & Embedding"):
-                vector_store = create_vector_store_with_retry(processed_docs, embeddings)
+                vector_search = VectorSearch()
+                vector_search.initialize_embeddings()
+
+                vector_store = create_vector_store_with_retry(processed_docs, vector_search.embeddings)
             
             # Save vector store
             with Timer("Vector Store Saving"):
                 vector_store.save_local(
                     folder_path="faiss_index",
-                    index_name="default_index"
+                    index_name="index"
                 )
             
             print("\n=== Processing Summary ===")

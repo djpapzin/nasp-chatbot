@@ -8,12 +8,9 @@ from typing import List
 import os
 from src.document_manager import WebDocumentManager
 from src.config import CHATBOT_CONFIG, PROMPT_CONFIG, LANGUAGE_CONFIG
-from src.translation import translate_text  # Import the translation function
+from src.translator import Translator  # Or the specific function you need
 
 logger = logging.getLogger(__name__)
-
-# Create the chat prompt template
-QA_PROMPT = ChatPromptTemplate.from_messages(PROMPT_CONFIG["chat_messages"])
 
 class UI:
     @staticmethod
@@ -44,21 +41,11 @@ class UI:
                 "Upload PDF, DOCX, or TXT files",
                 type=["pdf", "docx", "txt"],
                 accept_multiple_files=True,
-                help="Maximum file size: 200MB"
+                help="Maximum file size: 200MB",
+                disabled=True  # Disable the uploader
             )
             
-            if uploaded_files:
-                for file in uploaded_files:
-                    with st.spinner(f'Processing {file.name}...'):
-                        try:
-                            success, result = doc_manager.process_file(file, file.name)
-                            if success and vector_store is not None:
-                                vector_store.add_documents(result)
-                                st.success(f'Successfully processed: {file.name}')
-                            else:
-                                st.error(f'Error processing {file.name}: {result}')
-                        except Exception as e:
-                            st.error(f'Error processing {file.name}: {str(e)}')
+            st.warning("Document uploads are not supported yet. Please check back later.")
 
     @staticmethod
     def format_sources(sources: List[Document]) -> str:
@@ -70,7 +57,7 @@ class UI:
         return formatted_sources
 
     @staticmethod
-    def show_chat_interface(vector_store, llm_handler):
+    def show_chat_interface(vector_store, llm_handler, qa_prompt):
         """Display chat interface with RAG"""
         if vector_store is None:
             st.error("Vector store not initialized. Please check your credentials and try again.")
@@ -81,7 +68,7 @@ class UI:
             retriever = vector_store.as_retriever()
             question_answer_chain = create_stuff_documents_chain(
                 llm_handler.llm,
-                QA_PROMPT
+                qa_prompt
             )
             qa_chain = create_retrieval_chain(retriever, question_answer_chain)
 
@@ -148,24 +135,34 @@ def initialize_session_state():
         st.session_state.language = LANGUAGE_CONFIG['default_language']
 
 def main():
-    initialize_session_state()
+    UI.setup_page()
     
-    # Language selector in sidebar
-    st.sidebar.selectbox(
-        "Choose Language / Выберите язык / Tilni tanlang",
-        options=list(LANGUAGE_CONFIG['available_languages'].keys()),
-        format_func=lambda x: LANGUAGE_CONFIG['available_languages'][x],
-        key='language'
-    )
+    # Language selector at the top of the page, before any other content
+    with st.sidebar:
+        selected_language = st.selectbox(
+            "Choose Language / Выберите язык / Tilni tanlang",
+            options=list(LANGUAGE_CONFIG['available_languages'].keys()),
+            format_func=lambda x: LANGUAGE_CONFIG['available_languages'][x],
+            key='language'
+        )
     
-    # Display content in selected language
+    # Initialize translator
+    translator = Translator()
+    
+    # Translate and display welcome message
+    welcome_message = CHATBOT_CONFIG['welcome_message']
+    translated_welcome = translator.translate(welcome_message, selected_language)
+    
     st.title(CHATBOT_CONFIG['name'])
-    st.write(CHATBOT_CONFIG['description'][st.session_state.language])
-    st.write(CHATBOT_CONFIG['opening_message'][st.session_state.language])
+    st.markdown(translated_welcome)
     
     # Create QA prompt based on selected language
-    current_prompt = PROMPT_CONFIG[st.session_state.language]['system_prompt']
-    QA_PROMPT = ChatPromptTemplate.from_messages([
+    current_prompt = PROMPT_CONFIG[selected_language]['system_prompt']
+    qa_prompt = ChatPromptTemplate.from_messages([
         ("system", current_prompt),
         ("human", "{input}")
     ])
+
+    # ... initialize other components ...
+
+    UI.show_chat_interface(vector_store, llm_handler, qa_prompt)
