@@ -48,13 +48,40 @@ class UI:
             st.warning("Document uploads are not supported yet. Please check back later.")
 
     @staticmethod
-    def format_sources(sources: List[Document]) -> str:
-        """Format source documents into a readable string with metadata"""
-        formatted_sources = "\n\n### Sources Used:\n"
-        for doc in sources:
-            formatted_sources += f"- **{doc.metadata['source']}** (Page {doc.metadata.get('page', 'N/A')})\n"
-            formatted_sources += f"  > {doc.page_content[:200]}...\n"
-        return formatted_sources
+    def format_sources(source_docs: List[Document]) -> str:
+        """Format source documents into a readable string."""
+        if not source_docs:
+            return ""
+        
+        sources_text = "Sources Used:\n\n"
+        seen_sources = set()  # Track unique sources
+        
+        for doc in source_docs:
+            # Get source info and clean up path
+            source = doc.metadata.get('source', 'Unknown Source')
+            # Remove path prefix if it exists
+            source = source.replace('src\\default_docs\\', '')
+            source = source.replace('src/default_docs/', '')  # Handle forward slashes too
+            
+            # Get page number if available
+            page = doc.metadata.get('page')
+            page_info = f" (Page {page})" if page and page != "N/A" else ""
+            
+            # Create source identifier
+            source_id = f"{source}{page_info}"
+            
+            # Only add if we haven't seen this exact source+page combination
+            if source_id not in seen_sources:
+                seen_sources.add(source_id)
+                
+                # Add the source header
+                sources_text += f"📄 {source}{page_info}\n"
+                
+                # Add the relevant excerpt
+                content = doc.page_content.strip()
+                sources_text += f"    {content}\n\n"
+        
+        return sources_text
 
     @staticmethod
     def show_chat_interface(vector_store, llm_handler, qa_prompt):
