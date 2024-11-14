@@ -45,25 +45,24 @@ def format_sources(source_docs: List[Document]) -> str:
     if not source_docs:
         return ""
     
-    sources_text = "\n\n*Sources Used:*\n"
+    sources_text = "\n\n📚 *View Sources*\n\n"
+    
     for doc in source_docs:
+        # Get source and page info
         source = doc.metadata.get('source', 'Unknown Source')
         page = doc.metadata.get('page', 'N/A')
         
-        # Clean up source name
-        source = os.path.basename(source)  # Remove path
-        source = os.path.splitext(source)[0]  # Remove extension
-        source = source.replace('_', ' ')  # Replace underscores with spaces
+        # Clean up source path to match Streamlit format
+        source = source.replace('src\\default_docs\\', '')  # Remove path prefix
         
-        # Format the source entry with content preview
-        content_preview = doc.page_content[:200].replace('\n', ' ').strip()
+        # Format source header
+        source_header = f"📄 *Source:* {escape_markdown(source)} 📑 *Pages:* {page}\n\n"
         
-        # Escape special characters for Markdown V2
-        source = escape_markdown(source)
-        content_preview = escape_markdown(content_preview)
+        # Format relevant excerpts
+        content = doc.page_content.strip()
+        excerpts = f"🔍 *Relevant Excerpts:*\n{escape_markdown(content)}\n\n"
         
-        sources_text += f"• *{source}* \\(Page {page}\\)\n"
-        sources_text += f"  > {content_preview}\\.\\.\\.\n\n"
+        sources_text += source_header + excerpts
     
     return sources_text
 
