@@ -3,9 +3,11 @@ import logging
 from pathlib import Path
 from typing import Tuple, Any, List, Dict, Set
 from datetime import datetime
+import re
 
 # Telegram imports
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # LangChain imports
@@ -22,7 +24,7 @@ from langchain_openai import AzureOpenAIEmbeddings
 # Local imports
 from document_manager import TelegramDocumentManager
 from vector_search import VectorSearch
-from config import CHATBOT_CONFIG
+from config import PROMPT_CONFIG, CHATBOT_CONFIG
 
 # Configure logging
 logging.basicConfig(
@@ -43,71 +45,64 @@ def format_sources(source_docs: List[Document]) -> str:
     if not source_docs:
         return ""
     
-    # Group documents by source
-    sources = {}
+    sources_text = "\n\n*Sources Used:*\n"
     for doc in source_docs:
         source = doc.metadata.get('source', 'Unknown Source')
-        page = doc.metadata.get('page', 1)
+        page = doc.metadata.get('page', 'N/A')
         
         # Clean up source name
         source = os.path.basename(source)  # Remove path
         source = os.path.splitext(source)[0]  # Remove extension
         source = source.replace('_', ' ')  # Replace underscores with spaces
         
-        if source not in sources:
-            sources[source] = set()
-        sources[source].add(page)
-    
-    # Format the sources text
-    sources_text = "\n\n📚 Sources:\n"
-    for source, pages in sources.items():
-        pages_str = f"(Page{'s' if len(pages) > 1 else ''} {', '.join(map(str, sorted(pages)))})"
-        sources_text += f"- {source} {pages_str}\n"
+        # Format the source entry with content preview
+        content_preview = doc.page_content[:200].replace('\n', ' ').strip()
+        
+        # Escape special characters for Markdown V2
+        source = escape_markdown(source)
+        content_preview = escape_markdown(content_preview)
+        
+        sources_text += f"• *{source}* \\(Page {page}\\)\n"
+        sources_text += f"  > {content_preview}\\.\\.\\.\n\n"
     
     return sources_text
+
+def escape_markdown(text: str) -> str:
+    """Escape special characters in Markdown."""
+    escape_chars = r"[\\*_\[\]()~`>#+\-=|{}.!]"  # Add other needed chars
+    return re.sub(escape_chars, lambda match: "\\" + match.group(0), text)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming messages."""
     try:
-        question = update.message.text
-        chat_id = update.message.chat_id
+        query = update.message.text
+        logger.info(f"Received query: {query}")
         
-        # Send typing indicator
-        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+        await update.message.chat.send_action(action="typing")
         
-        # Generate response using RAG
-        response = qa_chain.invoke({
-            "input": question
-        })
+        logger.info("Invoking LLM chain...")
+        result = await qa_chain.ainvoke({"input": query})
+        logger.info("LLM chain completed")
         
-        if response and "answer" in response:
-            # Send the main answer with markdown formatting
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=response["answer"],
-                parse_mode="Markdown"
-            )
-            
-            # If there are source documents, format and send them
-            if "source_documents" in response:
-                sources_text = format_sources(response["source_documents"])
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=sources_text,
-                    parse_mode="Markdown"
-                )
-        else:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="I'm sorry, I couldn't find relevant information to answer your question.",
-                parse_mode="Markdown"
-            )
+        answer = result.get('answer', 'No answer generated')
+        sources = format_sources(result.get('source_documents', []))
+        
+        # Combine answer and sources, escaping special characters
+        full_response = f"{escape_markdown(answer)}{sources}"
+        
+        await update.message.reply_text(
+            full_response,
+            parse_mode=ParseMode.MARKDOWN_V2,
+            disable_web_page_preview=True
+        )
+        logger.info("Response sent successfully")
+        
     except Exception as e:
-        logger.error(f"Error handling message: {str(e)}", exc_info=True)
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="I encountered an error while processing your request. Please try again.",
-            parse_mode="Markdown"
+        logger.exception(f"Detailed error in handle_message: {str(e)}")
+        error_message = escape_markdown(f"I encountered an error while processing your request: {str(e)}. Please try again.")
+        await update.message.reply_text(
+            error_message, 
+            parse_mode=ParseMode.MARKDOWN_V2
         )
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -130,17 +125,18 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
-    user = update.effective_user
+    """Send welcome message when /start command is issued."""
     welcome_message = (
-        f"👋 Hi {user.mention_html()}!\n\n"
-        f"{CHATBOT_CONFIG['description']}\n\n"
-        "Available commands:\n"
-        "/start - Show this welcome message\n"
-        "/help - Show help information\n\n"
-        f"{CHATBOT_CONFIG['opening_message']}"
+        "*NASP Chatbot*\n\n"  # Title in bold
+        "Welcome\\! This is a prototype chatbot for the National Agency of Social Protection\\. "
+        "You can use it to ask questions about a library of reports, evaluations, research and other documents\\.\n\n"
+        "Hello\\. Please enter your question in the chat box to get started\\."
     )
-    await update.message.reply_html(welcome_message)
+    
+    await update.message.reply_text(
+        welcome_message,
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
 
 def init_components():
     """Initialize LLM, vector store, and QA chain components"""
@@ -197,7 +193,7 @@ def create_qa_chain(llm, vector_search):
     
     # Create document chain
     prompt = ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
+        ("system", PROMPT_CONFIG["en"]["system_prompt"]),
         ("human", "{input}")
     ])
     
@@ -207,11 +203,10 @@ def create_qa_chain(llm, vector_search):
         document_variable_name="context"
     )
     
-    # Create retrieval chain
+    # Create retrieval chain with updated parameter names
     return create_retrieval_chain(
-        retriever, 
-        document_chain,
-        return_source_documents=True
+        retriever=retriever,  # Changed from vector_search to retriever
+        combine_docs_chain=document_chain  # Changed from question_answer_chain to combine_docs_chain
     )
 
 # Constants
@@ -220,28 +215,16 @@ SYSTEM_PROMPT = """Your task is to be an expert researcher that can answer quest
 Context: {context}
 """
 
-def main() -> None:
-    """Start the bot"""
-    try:
-        # Initialize components
-        global vector_store, vector_search, qa_chain
-        vector_store, vector_search, qa_chain = init_components()
-        
-        # Create application
-        application = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
-        
-        # Add handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-        
-        # Start bot
-        logger.info("Starting bot...")
-        application.run_polling()
-        
-    except Exception as e:
-        logger.error(f"Fatal error starting bot: {str(e)}")
-        raise
+if __name__ == "__main__":
+    # Initialize components
+    global vector_store, vector_search, qa_chain  # If these are needed globally
+    vector_store, vector_search, qa_chain = init_components()
 
-if __name__ == '__main__':
-    main()
+    # Create application and add handlers
+    application = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+
+    # Start the bot.  NO asyncio.run() here!
+    application.run_polling()

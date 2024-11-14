@@ -7,22 +7,13 @@ from langchain.schema import Document
 from typing import List
 import os
 from src.document_manager import WebDocumentManager
-
-
+from src.config import CHATBOT_CONFIG, PROMPT_CONFIG, LANGUAGE_CONFIG
+from src.translation import translate_text  # Import the translation function
 
 logger = logging.getLogger(__name__)
 
-# Define the system prompt
-SYSTEM_PROMPT = """Your task is to be an expert researcher that can answer questions.  Use the following pieces of retrieved context to answer the question.  Use clear and professional language, and organize the summary in a logical manner using appropriate formatting such as headings, subheadings, and bullet points.  If the information needed to answer the question is not available in the context then say that you don't know.
-
-Context: {context}
-"""
-
 # Create the chat prompt template
-QA_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", SYSTEM_PROMPT),
-    ("human", "{input}")
-])
+QA_PROMPT = ChatPromptTemplate.from_messages(PROMPT_CONFIG["chat_messages"])
 
 class UI:
     @staticmethod
@@ -151,3 +142,30 @@ class UI:
         except Exception as e:
             st.error(f"Error initializing chat interface: {str(e)}")
             return
+
+def initialize_session_state():
+    if 'language' not in st.session_state:
+        st.session_state.language = LANGUAGE_CONFIG['default_language']
+
+def main():
+    initialize_session_state()
+    
+    # Language selector in sidebar
+    st.sidebar.selectbox(
+        "Choose Language / Выберите язык / Tilni tanlang",
+        options=list(LANGUAGE_CONFIG['available_languages'].keys()),
+        format_func=lambda x: LANGUAGE_CONFIG['available_languages'][x],
+        key='language'
+    )
+    
+    # Display content in selected language
+    st.title(CHATBOT_CONFIG['name'])
+    st.write(CHATBOT_CONFIG['description'][st.session_state.language])
+    st.write(CHATBOT_CONFIG['opening_message'][st.session_state.language])
+    
+    # Create QA prompt based on selected language
+    current_prompt = PROMPT_CONFIG[st.session_state.language]['system_prompt']
+    QA_PROMPT = ChatPromptTemplate.from_messages([
+        ("system", current_prompt),
+        ("human", "{input}")
+    ])
