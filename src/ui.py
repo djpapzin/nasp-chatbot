@@ -72,37 +72,11 @@ class UI:
     @staticmethod
     def format_sources(sources: List[Document]) -> str:
         """Format source documents into a readable string with metadata"""
-        unique_sources = {}
-        
+        formatted_sources = "\n\n### Sources Used:\n"
         for doc in sources:
-            filename = os.path.basename(doc.metadata.get('source', 'Unknown'))
-            page = doc.metadata.get('page', 'N/A')
-            score = doc.metadata.get('score', 'N/A')
-            
-            if filename not in unique_sources:
-                unique_sources[filename] = {
-                    'pages': set([page]),
-                    'score': score if isinstance(score, float) else 'N/A',
-                    'snippets': [doc.page_content[:200] + "..."]  # First 200 chars of content
-                }
-            else:
-                unique_sources[filename]['pages'].add(page)
-                if len(unique_sources[filename]['snippets']) < 2:  # Limit to 2 snippets per source
-                    unique_sources[filename]['snippets'].append(doc.page_content[:200] + "...")
-
-        # Format into markdown
-        formatted_sources = []
-        for filename, info in unique_sources.items():
-            source_text = f"📄 **Source**: {filename}\n"
-            source_text += f"📑 **Pages**: {', '.join(map(str, sorted(info['pages'])))}\n"
-            if info['score'] != 'N/A':
-                source_text += f"🎯 **Relevance**: {info['score']:.2%}\n"
-            source_text += "\n🔍 **Relevant Excerpts**:\n"
-            for i, snippet in enumerate(info['snippets'], 1):
-                source_text += f"  {i}. {snippet}\n"
-            formatted_sources.append(source_text)
-            
-        return "\n---\n".join(formatted_sources)
+            formatted_sources += f"- **{doc.metadata['source']}** (Page {doc.metadata.get('page', 'N/A')})\n"
+            formatted_sources += f"  > {doc.page_content[:200]}...\n"
+        return formatted_sources
 
     @staticmethod
     def show_chat_interface(vector_store, llm_handler):
