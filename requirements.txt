@@ -36,3 +36,4 @@ ratelimit
 langchain-openai 
 langchain-community
 azure-ai-translation-text
+together
