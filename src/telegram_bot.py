@@ -27,7 +27,8 @@ from langchain_openai import AzureOpenAIEmbeddings
 from document_manager import TelegramDocumentManager
 from vector_search import VectorSearch
 from config import PROMPT_CONFIG, CHATBOT_CONFIG
-from src.translator import Translator
+#from src.translator import Translator  # Disable translator import for now
+from src.llm import LLMHandler
 
 # Configure logging
 logging.basicConfig(
@@ -77,31 +78,32 @@ def escape_markdown(text: str) -> str:
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming messages."""
     try:
+        # Remove language check and selection
         query = update.message.text
-        logger.info(f"Received query: {query}")
-        
+
         await update.message.chat.send_action(action="typing")
-        
-        logger.info("Invoking LLM chain...")
+
+        # Get response from LLM
         result = await qa_chain.ainvoke({"input": query})
-        logger.info("LLM chain completed")
-        
+
+        # Disable translation
         answer = result.get('answer', 'No answer generated')
+        # No translation needed, use the answer directly
+        
         sources = format_sources(result.get('source_documents', []))
         
         # Combine answer and sources, escaping special characters
-        full_response = f"{escape_markdown(answer)}{sources}"
-        
+        full_response = f"{escape_markdown(answer)}{sources}" # Use answer directly
+
         await update.message.reply_text(
             full_response,
             parse_mode=ParseMode.MARKDOWN_V2,
             disable_web_page_preview=True
         )
-        logger.info("Response sent successfully")
-        
+
     except Exception as e:
-        logger.exception(f"Detailed error in handle_message: {str(e)}")
-        error_message = escape_markdown(f"I encountered an error while processing your request: {str(e)}. Please try again.")
+        logger.exception(f"Error in handle_message: {str(e)}")
+        error_message = escape_markdown(f"I encountered an error while processing your request. Please try again.")
         await update.message.reply_text(
             error_message, 
             parse_mode=ParseMode.MARKDOWN_V2
@@ -115,77 +117,21 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send welcome message when /start command is issued."""
-    # Default to English initially
-    user_language = context.user_data.get('language', 'en')
-    
-    # Initialize translator
-    translator = Translator()
-    
-    # Get and translate welcome message
-    welcome_message = CHATBOT_CONFIG['welcome_message']
-    translated_welcome = translator.translate(welcome_message, user_language)
-    
-    # Escape special characters for Markdown
-    escaped_message = escape_markdown(translated_welcome)
-    
-    # Add language selection instructions
-    language_instructions = translator.translate(
-        "Use /language to change the language (EN/RU/UZ)",
-        user_language
-    )
-    
-    full_message = f"{escaped_message}\n\n{escape_markdown(language_instructions)}"
-    
+    # Remove language specific welcome message and instructions
+    welcome_message = CHATBOT_CONFIG['welcome_message'] # Use default welcome message
+
     await update.message.reply_text(
-        full_message,
+        escape_markdown(welcome_message), # Use welcome_message directly
         parse_mode=ParseMode.MARKDOWN_V2
     )
-
-async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle language change command"""
-    translator = Translator()
-    
-    # Create keyboard with language options
-    keyboard = [
-        ["English 🇬🇧", "Русский 🇷🇺", "O'zbek 🇺🇿"]
-    ]
-    
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
-    
-    await update.message.reply_text(
-        "Please select your language:\nПожалуйста, выберите язык:\nTilni tanlang:",
-        reply_markup=reply_markup
-    )
-
-async def handle_language_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle language selection from keyboard"""
-    text = update.message.text
-    
-    language_map = {
-        "English 🇬🇧": "en",
-        "Русский 🇷🇺": "ru",
-        "O'zbek 🇺🇿": "uz"
-    }
-    
-    if text in language_map:
-        selected_language = language_map[text]
-        context.user_data['language'] = selected_language
-        
-        translator = Translator()
-        confirmation = translator.translate(
-            "Language has been updated. You can now continue chatting.",
-            selected_language
-        )
-        
-        await update.message.reply_text(
-            escape_markdown(confirmation),
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=ReplyKeyboardRemove()
-        )
 
 def init_components():
     """Initialize LLM, vector store, and QA chain components"""
     try:
+        # Initialize LLM handler
+        llm_handler = LLMHandler()
+        llm = llm_handler.llm
+        
         # Initialize embeddings
         vector_search = VectorSearch()
         vector_search.initialize_embeddings()
@@ -194,7 +140,8 @@ def init_components():
         vector_store = FAISS.load_local(
             folder_path="faiss_index",
             embeddings=vector_search.embeddings,
-            index_name="index"
+            index_name="index",
+            allow_dangerous_deserialization=True
         )
         logger.info("Vector store loaded successfully")
         
@@ -209,7 +156,7 @@ def init_components():
 
 def create_qa_chain(llm, vector_store):
     """Create the question-answering chain"""
-    # Create retrieval chain
+    # Create retriever
     retriever = vector_store.as_retriever(
         search_type="similarity",
         search_kwargs={"k": 3}
@@ -227,10 +174,10 @@ def create_qa_chain(llm, vector_store):
         document_variable_name="context"
     )
     
-    # Create retrieval chain with updated parameter names
+    # Create retrieval chain
     return create_retrieval_chain(
-        retriever=retriever,  # Changed from vector_search to retriever
-        combine_docs_chain=document_chain  # Changed from question_answer_chain to combine_docs_chain
+        retriever=retriever,
+        combine_docs_chain=document_chain
     )
 
 # Constants
@@ -316,11 +263,6 @@ async def main() -> None:
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("about", about_command))
         application.add_handler(CommandHandler("clear_chat", clear_chat))
-        application.add_handler(CommandHandler("language", language_command))
-        application.add_handler(MessageHandler(
-            filters.Regex("^(English 🇬🇧|Русский 🇷🇺|O'zbek 🇺🇿)$"), 
-            handle_language_selection
-        ))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
@@ -359,3 +301,4 @@ if __name__ == "__main__":
 
     except Exception as e:
         logger.error(f"Bot stopped due to error: {str(e)}", exc_info=True)
+

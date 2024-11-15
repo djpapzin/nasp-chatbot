@@ -117,19 +117,23 @@ class VectorSearch:
     @staticmethod
     def initialize() -> Tuple[Optional[FAISS], Optional['VectorSearch']]:
         """Initialize vector store and search components"""
+        vector_search = VectorSearch()
+        vector_search.initialize_embeddings()
+        
         try:
-            vector_search = VectorSearch()
-            vector_store = vector_search.load_or_create_vector_store()
-            
-            if not vector_store:
-                logger.error("Failed to initialize vector store")
-                return None, None
-                
-            return vector_store, vector_search
-            
+            # Load existing vector store
+            vector_store = FAISS.load_local(
+                folder_path="faiss_index",
+                embeddings=vector_search.embeddings,
+                index_name="index",
+                allow_dangerous_deserialization=True
+            )
+            logger.info("Loaded existing vector store")
         except Exception as e:
-            logger.error(f"Error initializing vector store: {str(e)}")
-            return None, None
+            logger.error(f"Error loading vector store: {str(e)}")
+            vector_store = None
+        
+        return vector_store, vector_search
 
     def initialize_vector_store(self):
         try:

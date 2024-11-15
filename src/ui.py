@@ -16,12 +16,15 @@ class UI:
     @staticmethod
     def setup_page():
         """Configure initial page settings"""
-        st.set_page_config(
-            page_title="NASP Chatbot",
-            page_icon="🤖",
-            layout="wide",
-            initial_sidebar_state="expanded"
-        )
+        # This must be the first Streamlit command
+        if 'page_config_set' not in st.session_state:
+            st.set_page_config(
+                page_title="NASP Chatbot",
+                page_icon="🤖",
+                layout="wide",
+                initial_sidebar_state="expanded"
+            )
+            st.session_state.page_config_set = True
 
     @staticmethod
     def show_header():
@@ -160,36 +163,53 @@ class UI:
 def initialize_session_state():
     if 'language' not in st.session_state:
         st.session_state.language = LANGUAGE_CONFIG['default_language']
+    if 'language_selected' not in st.session_state:
+        st.session_state.language_selected = False
+    if 'messages' not in st.session_state:
+        st.session_state.messages = []
 
 def main():
+    initialize_session_state()
     UI.setup_page()
     
-    # Language selector at the top of the page, before any other content
-    with st.sidebar:
+    # Clear the main area and show only language selection initially
+    st.empty()  # Clear any existing content
+    
+    # Create a centered column for language selection
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:  # Center the language selection
+        st.title("Select Language / Выберите язык / Tilni tanlang")
+        
         selected_language = st.selectbox(
-            "Choose Language / Выберите язык / Tilni tanlang",
+            "",  # Empty label since we have the title above
             options=list(LANGUAGE_CONFIG['available_languages'].keys()),
             format_func=lambda x: LANGUAGE_CONFIG['available_languages'][x],
-            key='language'
+            key='language'  # Use a key for session state
         )
-    
-    # Initialize translator
-    translator = Translator()
-    
-    # Translate and display welcome message
-    welcome_message = CHATBOT_CONFIG['welcome_message']
-    translated_welcome = translator.translate(welcome_message, selected_language)
-    
-    st.title(CHATBOT_CONFIG['name'])
-    st.markdown(translated_welcome)
-    
-    # Create QA prompt based on selected language
-    current_prompt = PROMPT_CONFIG[selected_language]['system_prompt']
-    qa_prompt = ChatPromptTemplate.from_messages([
-        ("system", current_prompt),
-        ("human", "{input}")
-    ])
+        
+        if st.button("Continue / Продолжить / Davom etish", use_container_width=True):
+            st.session_state.language_selected = True
+            st.rerun()  # Rerun the script to update the UI
 
-    # ... initialize other components ...
+    # Only show the main content after language is selected
+    if st.session_state.get('language_selected', False):
+        # Initialize translator
+        translator = Translator()
+        
+        # Translate and display welcome message
+        welcome_message = CHATBOT_CONFIG['welcome_message']
+        translated_welcome = translator.translate(welcome_message, selected_language)
+        
+        st.title(CHATBOT_CONFIG['name'])
+        st.markdown(translated_welcome)
+        
+        # Create QA prompt based on selected language
+        current_prompt = PROMPT_CONFIG[selected_language]['system_prompt']
+        qa_prompt = ChatPromptTemplate.from_messages([
+            ("system", current_prompt),
+            ("human", "{input}")
+        ])
 
-    UI.show_chat_interface(vector_store, llm_handler, qa_prompt)
+        # Initialize other components and show chat interface
+        UI.show_chat_interface(vector_store, llm_handler, qa_prompt)
